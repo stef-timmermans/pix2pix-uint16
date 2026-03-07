@@ -18,7 +18,7 @@ This PyTorch implementation produces results comparable to or better than our or
 
 **Note**: The current software works well with PyTorch 2.4+. Check out the older [branch](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/tree/pytorch0.3.1) that supports PyTorch 0.1-0.3.
 
-You may find useful information in [training/test tips](docs/tips.md) and [frequently asked questions](docs/qa.md). To implement custom models and datasets, check out our [templates](#custom-model-and-dataset). To help users better understand and adapt our codebase, we provide an [overview](docs/overview.md) of the code structure of this repository.
+You may find useful information in [training/test tips](docs/tips.md). To implement custom models and datasets, check out our [templates](#custom-model-and-dataset). To help users better understand and adapt our codebase, we provide an [overview](docs/overview.md) of the code structure of this repository.
 
 **CycleGAN: [Project](https://junyanz.github.io/CycleGAN/) | [Paper](https://arxiv.org/pdf/1703.10593.pdf) | [Torch](https://github.com/junyanz/CycleGAN) |
 [Tensorflow Core Tutorial](https://www.tensorflow.org/tutorials/generative/cyclegan) | [PyTorch Colab](https://colab.research.google.com/github/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/CycleGAN.ipynb)**
@@ -247,10 +247,6 @@ Download pix2pix/CycleGAN datasets and create your own datasets.
 ## [Training/Test Tips](docs/tips.md)
 
 Best practice for training and testing your models.
-
-## [Frequently Asked Questions](docs/qa.md)
-
-Before you post a new question, please first look at the above Q & A and existing GitHub issues.
 
 ## Custom Model and Dataset
 
