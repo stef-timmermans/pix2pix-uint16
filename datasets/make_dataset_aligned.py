@@ -1,5 +1,6 @@
 import os
-
+import numpy as np
+import tifffile
 from PIL import Image
 
 
@@ -10,7 +11,9 @@ def get_file_paths(folder):
         for filename in filenames:
             input_path = os.path.abspath(root)
             file_path = os.path.join(input_path, filename)
-            if filename.endswith('.png') or filename.endswith('.jpg'):
+
+            # support numerous filetypes
+            if filename.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
                 image_file_paths.append(file_path)
 
         break  # prevent descending into subfolders
@@ -22,14 +25,40 @@ def align_images(a_file_paths, b_file_paths, target_path):
         os.makedirs(target_path)
 
     for i in range(len(a_file_paths)):
-        img_a = Image.open(a_file_paths[i])
-        img_b = Image.open(b_file_paths[i])
-        assert(img_a.size == img_b.size)
+        ext_a = os.path.splitext(a_file_paths[i])[1].lower()
+        ext_b = os.path.splitext(b_file_paths[i])[1].lower()
 
-        aligned_image = Image.new("RGB", (img_a.size[0] * 2, img_a.size[1]))
-        aligned_image.paste(img_a, (0, 0))
-        aligned_image.paste(img_b, (img_a.size[0], 0))
-        aligned_image.save(os.path.join(target_path, '{:04d}.jpg'.format(i)))
+        assert ext_a == ext_b, f"Extension mismatch: {a_file_paths[i]} vs {b_file_paths[i]}"
+
+        if ext_a in (".tif", ".tiff"):
+            img_a = tifffile.imread(a_file_paths[i])
+            img_b = tifffile.imread(b_file_paths[i])
+
+            assert img_a.shape == img_b.shape, f"Shape mismatch: {a_file_paths[i]} vs {b_file_paths[i]}"
+
+            aligned_image = np.concatenate([img_a, img_b], axis=1)
+            out_path = os.path.join(target_path, "{:04d}.tiff".format(i))
+            tifffile.imwrite(out_path, aligned_image)
+
+        elif ext_a in (".png", ".jpg", ".jpeg"):
+            img_a = Image.open(a_file_paths[i])
+            img_b = Image.open(b_file_paths[i])
+
+            assert img_a.size == img_b.size, f"Size mismatch: {a_file_paths[i]} vs {b_file_paths[i]}"
+
+            mode = img_a.mode
+            assert img_b.mode == mode, f"Mode mismatch: {a_file_paths[i]} vs {b_file_paths[i]}"
+
+            aligned_image = Image.new(mode, (img_a.size[0] * 2, img_a.size[1]))
+            aligned_image.paste(img_a, (0, 0))
+            aligned_image.paste(img_b, (img_a.size[0], 0))
+
+            out_ext = ".png" if ext_a == ".png" else ".jpg"
+            out_path = os.path.join(target_path, "{:04d}{}".format(i, out_ext))
+            aligned_image.save(out_path)
+
+        else:
+            raise ValueError(f"Unsupported extension: {ext_a}")
 
 
 if __name__ == '__main__':

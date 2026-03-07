@@ -65,9 +65,9 @@ class Visualizer:
         if self.use_wandb:
             # Only initialize wandb on main process (rank 0)
             if not dist.is_initialized() or dist.get_rank() == 0:
-                self.wandb_project_name = getattr(opt, "wandb_project_name", "CycleGAN-and-pix2pix")
+                self.wandb_project_name = getattr(opt, "wandb_project_name", "pix2pix-uint16")
                 self.wandb_run = wandb.init(project=self.wandb_project_name, name=opt.name, config=opt) if not wandb.run else wandb.run
-                self.wandb_run._label(repo="CycleGAN-and-pix2pix")
+                self.wandb_run._label(repo="pix2pix-uint16")
             else:
                 self.wandb_run = None
 

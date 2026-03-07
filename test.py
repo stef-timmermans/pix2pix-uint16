@@ -8,7 +8,7 @@ It then runs inference for '--num_test' images and save results to an HTML file.
 
 Example:
     Test a pix2pix model:
-        python test.py --dataroot ./datasets/facades --name facades_pix2pix --model pix2pix --direction BtoA
+        python test.py --dataroot ./datasets/<your-dataset> --name <your-dataset> --model pix2pix --direction AtoB
 
 See options/base_options.py and options/test_options.py for more test options.
 """
@@ -48,8 +48,6 @@ if __name__ == "__main__":
     print(f"creating web directory {web_dir}")
     webpage = html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
     # test with eval mode. This only affects layers like batchnorm and dropout.
-    # For [pix2pix]: we use batchnorm and dropout in the original pix2pix. You can experiment it with and without eval() mode.
-    # For [CycleGAN]: It should not affect CycleGAN as CycleGAN uses instancenorm without dropout.
     if opt.eval:
         model.eval()
     for i, data in enumerate(dataset):

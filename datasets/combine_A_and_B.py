@@ -2,12 +2,16 @@ import os
 import numpy as np
 import cv2
 import argparse
+from pathlib import Path
 from multiprocessing import Pool
 
 
 def image_write(path_A, path_B, path_AB):
-    im_A = cv2.imread(str(path_A), 1) # python2: cv2.CV_LOAD_IMAGE_COLOR; python3: cv2.IMREAD_COLOR
-    im_B = cv2.imread(str(path_B), 1) # python2: cv2.CV_LOAD_IMAGE_COLOR; python3: cv2.IMREAD_COLOR
+    im_A = cv2.imread(str(path_A), cv2.IMREAD_UNCHANGED)
+    im_B = cv2.imread(str(path_B), cv2.IMREAD_UNCHANGED)
+    assert im_A is not None, f"Failed to read {path_A}"
+    assert im_B is not None, f"Failed to read {path_B}"
+    assert im_A.shape == im_B.shape, f"Shape mismatch: {path_A} {im_A.shape} vs {path_B} {im_B.shape}"
     im_AB = np.concatenate([im_A, im_B], 1)
     cv2.imwrite(str(path_AB), im_AB)
 

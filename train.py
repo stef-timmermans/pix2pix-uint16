@@ -1,6 +1,6 @@
 """General-purpose training script for image-to-image translation.
 
-This script works for pix2pix with an aligned dataset (with option '--dataset_mode': e.g., aligned).
+This script works for pix2pix with an aligned dataset (using '--dataset_mode aligned')
 You need to specify the dataset ('--dataroot'), experiment name ('--name'), and model ('--model').
 
 It first creates model, dataset, and visualizer given the option.
@@ -9,7 +9,7 @@ The script supports continue/resume training. Use '--continue_train' to resume y
 
 Example:
     Train a pix2pix model:
-        python train.py --dataroot ./datasets/facades --name facades_pix2pix --model pix2pix --direction BtoA
+        python train.py --dataroot ./datasets/<your-dataset> --name <your-dataset> --model pix2pix --direction BtoA
 
 See options/base_options.py and options/train_options.py for more training options.
 """
