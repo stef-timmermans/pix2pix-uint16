@@ -21,8 +21,7 @@ def get_file_paths(folder):
 
 
 def align_images(a_file_paths, b_file_paths, target_path):
-    if not os.path.exists(target_path):
-        os.makedirs(target_path)
+    os.makedirs(target_path, exist_ok=True)
 
     for i in range(len(a_file_paths)):
         ext_a = os.path.splitext(a_file_paths[i])[1].lower()
