@@ -2,6 +2,9 @@ import os
 from data.base_dataset import BaseDataset, get_params, get_transform
 from data.image_folder import make_dataset
 from PIL import Image
+import tifffile
+import numpy as np
+import torch
 
 
 class AlignedDataset(BaseDataset):
@@ -36,17 +39,18 @@ class AlignedDataset(BaseDataset):
             A_paths (str) - - image paths
             B_paths (str) - - image paths (same as A_paths)
         """
-        # read a image given a random integer index
+        # read a tiffile image at a random integer index
         AB_path = self.AB_paths[index]
-        AB = Image.open(AB_path).convert("RGB")
+        AB = tifffile.imread(AB_path)
         # split AB image into A and B
-        w, h = AB.size
-        w2 = int(w / 2)
-        A = AB.crop((0, 0, w2, h))
-        B = AB.crop((w2, 0, w, h))
+        h, w = AB.shape[:2]
+        assert w % 2 == 0, f"Expected even width for side-by-side image, got width={w} for {AB_path}"
+        w2 = w // 2
+        A = AB[:, :w2]
+        B = AB[:, w2:]
 
         # apply the same transform to both A and B
-        transform_params = get_params(self.opt, A.size)
+        transform_params = get_params(self.opt, (w2, h))
         A_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
         B_transform = get_transform(self.opt, transform_params, grayscale=(self.output_nc == 1))
 

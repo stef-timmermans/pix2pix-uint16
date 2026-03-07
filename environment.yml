@@ -1,4 +1,4 @@
-name: pytorch-img2img
+name: pix2pix-uint16
 channels:
   - pytorch
   - conda-forge

@@ -1,14 +1,16 @@
 """This module implements an abstract base class (ABC) 'BaseDataset' for datasets.
 
-It also includes common transformation functions (e.g., get_transform, __scale_width), which can be later used in subclasses.
+It also includes common transformation helpers such as get_params and get_transform.
 """
 
 import random
 import numpy as np
 import torch.utils.data as data
-from PIL import Image
 import torchvision.transforms as transforms
 from abc import ABC, abstractmethod
+import torch
+import torch.nn.functional as F
+import functools
 
 
 class BaseDataset(data.Dataset, ABC):
@@ -79,89 +81,127 @@ def get_params(opt, size):
     return {"crop_pos": (x, y), "flip": flip}
 
 
-def get_transform(opt, params=None, grayscale=False, method=transforms.InterpolationMode.BICUBIC, convert=True):
-    transform_list = []
-    if grayscale:
-        transform_list.append(transforms.Grayscale(1))
+def _interp_mode(interp_method):
+    if interp_method == transforms.InterpolationMode.NEAREST:
+        return "nearest"
+    if interp_method == transforms.InterpolationMode.BILINEAR:
+        return "bilinear"
+    if interp_method == transforms.InterpolationMode.BICUBIC:
+        return "bicubic"
+    # torch interpolate does not support lanczos
+    return "bicubic"
+
+
+def _resize_tensor(img, size_hw, interp_method):
+    mode = _interp_mode(interp_method)
+    img = img.unsqueeze(0)  # 1 x C x H x W
+    if mode in ("bilinear", "bicubic"):
+        img = F.interpolate(img, size=size_hw, mode=mode, align_corners=False)
+    else:
+        img = F.interpolate(img, size=size_hw, mode=mode)
+    return img.squeeze(0)
+
+
+def _scale_width_tensor(img, target_size, crop_size, interp_method):
+    _, h, w = img.shape
+    if w == target_size and h >= crop_size:
+        return img
+    new_w = target_size
+    new_h = int(max(target_size * h / w, crop_size))
+    return _resize_tensor(img, (new_h, new_w), interp_method)
+
+
+def _make_power_2_tensor(img, base=4, interp_method=transforms.InterpolationMode.BICUBIC):
+    _, h, w = img.shape
+    new_h = int(round(h / base) * base)
+    new_w = int(round(w / base) * base)
+    if new_h == h and new_w == w:
+        return img
+    return _resize_tensor(img, (new_h, new_w), interp_method)
+
+
+def _crop_tensor(img, pos, size):
+    x1, y1 = pos
+    return img[:, y1:y1 + size, x1:x1 + size]
+
+
+def _flip_tensor(img):
+    return torch.flip(img, dims=[2])  # flip width dimension
+
+
+def _to_tensor_from_array(img, grayscale=False):
+    img = np.asarray(img)
+
+    if img.ndim == 2:
+        img = img[..., None]  # H x W -> H x W x 1
+    elif img.ndim != 3:
+        raise ValueError(f"Expected 2D or 3D image array, got shape {img.shape}")
+
+    if grayscale and img.shape[2] != 1:
+        img = img[..., :1]
+
+    if np.issubdtype(img.dtype, np.integer):
+        max_val = np.iinfo(img.dtype).max  # works for uint8/uint16/uint32
+        img = img.astype(np.float32) / float(max_val)
+    else:
+        img = img.astype(np.float32)
+
+    return torch.from_numpy(np.ascontiguousarray(np.transpose(img, (2, 0, 1)))).float()
+
+
+def _prepare_input_tensor(img, grayscale=False):
+    if isinstance(img, torch.Tensor):
+        tensor = img.float()
+        if tensor.ndim == 2:
+            tensor = tensor.unsqueeze(0)
+    else:
+        tensor = _to_tensor_from_array(img, grayscale=grayscale)
+
+    if grayscale and tensor.shape[0] != 1:
+        tensor = tensor[:1, :, :]
+
+    return tensor
+
+
+def _apply_transform(img, opt, params=None, grayscale=False, method=transforms.InterpolationMode.BICUBIC, convert=True):
+    tensor = _prepare_input_tensor(img, grayscale=grayscale)
+
     if "resize" in opt.preprocess:
-        osize = [opt.load_size, opt.load_size]
-        transform_list.append(transforms.Resize(osize, method))
+        tensor = _resize_tensor(tensor, (opt.load_size, opt.load_size), method)
     elif "scale_width" in opt.preprocess:
-        transform_list.append(transforms.Lambda(lambda img: __scale_width(img, opt.load_size, opt.crop_size, method)))
+        tensor = _scale_width_tensor(tensor, opt.load_size, opt.crop_size, method)
 
     if "crop" in opt.preprocess:
         if params is None:
-            transform_list.append(transforms.RandomCrop(opt.crop_size))
+            _, h, w = tensor.shape
+            x = random.randint(0, max(0, w - opt.crop_size))
+            y = random.randint(0, max(0, h - opt.crop_size))
+            tensor = _crop_tensor(tensor, (x, y), opt.crop_size)
         else:
-            transform_list.append(transforms.Lambda(lambda img: __crop(img, params["crop_pos"], opt.crop_size)))
+            tensor = _crop_tensor(tensor, params["crop_pos"], opt.crop_size)
 
     if opt.preprocess == "none":
-        transform_list.append(transforms.Lambda(lambda img: __make_power_2(img, base=4, method=method)))
+        tensor = _make_power_2_tensor(tensor, base=4, interp_method=method)
 
     if not opt.no_flip:
         if params is None:
-            transform_list.append(transforms.RandomHorizontalFlip())
+            if random.random() > 0.5:
+                tensor = _flip_tensor(tensor)
         elif params["flip"]:
-            transform_list.append(transforms.Lambda(lambda img: __flip(img, params["flip"])))
+            tensor = _flip_tensor(tensor)
 
     if convert:
-        transform_list += [transforms.ToTensor()]
-        if grayscale:
-            transform_list += [transforms.Normalize((0.5,), (0.5,))]
-        else:
-            transform_list += [transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]
-    return transforms.Compose(transform_list)
+        tensor = tensor * 2.0 - 1.0  # map [0, 1] -> [-1, 1]
+
+    return tensor
 
 
-def __transforms2pil_resize(method):
-    mapper = {
-        transforms.InterpolationMode.BILINEAR: Image.BILINEAR,
-        transforms.InterpolationMode.BICUBIC: Image.BICUBIC,
-        transforms.InterpolationMode.NEAREST: Image.NEAREST,
-        transforms.InterpolationMode.LANCZOS: Image.LANCZOS,
-    }
-    return mapper[method]
-
-
-def __make_power_2(img, base, method=transforms.InterpolationMode.BICUBIC):
-    method = __transforms2pil_resize(method)
-    ow, oh = img.size
-    h = int(round(oh / base) * base)
-    w = int(round(ow / base) * base)
-    if h == oh and w == ow:
-        return img
-
-    __print_size_warning(ow, oh, w, h)
-    return img.resize((w, h), method)
-
-
-def __scale_width(img, target_size, crop_size, method=transforms.InterpolationMode.BICUBIC):
-    method = __transforms2pil_resize(method)
-    ow, oh = img.size
-    if ow == target_size and oh >= crop_size:
-        return img
-    w = target_size
-    h = int(max(target_size * oh / ow, crop_size))
-    return img.resize((w, h), method)
-
-
-def __crop(img, pos, size):
-    ow, oh = img.size
-    x1, y1 = pos
-    tw = th = size
-    if ow > tw or oh > th:
-        return img.crop((x1, y1, x1 + tw, y1 + th))
-    return img
-
-
-def __flip(img, flip):
-    if flip:
-        return img.transpose(Image.FLIP_LEFT_RIGHT)
-    return img
-
-
-def __print_size_warning(ow, oh, w, h):
-    """Print warning information about image size(only print once)"""
-    if not hasattr(__print_size_warning, "has_printed"):
-        print("The image size needs to be a multiple of 4. " "The loaded image size was (%d, %d), so it was adjusted to " "(%d, %d). This adjustment will be done to all images " "whose sizes are not multiples of 4" % (ow, oh, w, h))
-        __print_size_warning.has_printed = True
+def get_transform(opt, params=None, grayscale=False, method=transforms.InterpolationMode.BICUBIC, convert=True):
+    return functools.partial(
+        _apply_transform,
+        opt=opt,
+        params=params,
+        grayscale=grayscale,
+        method=method,
+        convert=convert,
+    )
