@@ -59,6 +59,7 @@ class BaseOptions:
 
         # grayscale-specific flags
         parser.add_argument("--save_to_tiff", action="store_true", help="Save visualization images as TIFF instead of PNG")
+        parser.add_argument("--save_fake_only", action="store_true", help="Only save generated output images (fake_A / fake_B)")
 
         self.initialized = True
         return parser
