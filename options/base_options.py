@@ -60,6 +60,7 @@ class BaseOptions:
         # grayscale-specific flags
         parser.add_argument("--save_to_tiff", action="store_true", help="Save visualization images as TIFF instead of PNG")
         parser.add_argument("--save_fake_only", action="store_true", help="Only save generated output images (fake_A / fake_B)")
+        parser.add_argument("--output_resolution", type=str, default="uint16", choices=["uint8", "uint16"], help="bit depth for saved visualization images")
 
         self.initialized = True
         return parser

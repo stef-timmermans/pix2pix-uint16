@@ -9,7 +9,7 @@ import os
 import torch.distributed as dist
 
 
-def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image_ext=".png"):
+def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image_ext=".png", output_imtype=np.uint16):
     """Save images to the disk.
 
     Parameters:
@@ -19,6 +19,7 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image
         aspect_ratio (float)     -- the aspect ratio of saved images
         width (int)              -- the images will be resized to width x width
         image_ext (str)          -- the image extension to use when saving images to disk
+        output_imtype (type)     -- the numpy dtype to use when saving images to disk
 
     This function will save images stored in 'visuals' to the HTML file specified by 'webpage'.
     """
@@ -28,7 +29,7 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image
     webpage.add_header(name)
     ims, txts, links = [], [], []
     for label, im_data in visuals.items():
-        im = util.tensor2im(im_data)
+        im = util.tensor2im(im_data, imtype=output_imtype)
         image_name = f"{name}_{label}{image_ext}"
         save_path = image_dir / image_name
         util.save_image(im, save_path, aspect_ratio=aspect_ratio)
@@ -62,6 +63,7 @@ class Visualizer:
         self.use_wandb = opt.use_wandb
         self.current_epoch = 0
         self.image_ext = ".tiff" if getattr(opt, "save_to_tiff", False) else ".png"
+        self.output_imtype = np.uint16 if getattr(opt, "output_resolution", "uint16") == "uint16" else np.uint8
 
         # Initialize wandb if enabled
         if self.use_wandb:
@@ -115,7 +117,7 @@ class Visualizer:
             self.saved = True
             # save images to the disk
             for label, image in visuals.items():
-                image_numpy = util.tensor2im(image)
+                image_numpy = util.tensor2im(image, imtype=self.output_imtype)
                 img_path = self.img_dir / f"epoch{epoch:03d}_{label}{self.image_ext}"
                 util.save_image(image_numpy, img_path)
 
