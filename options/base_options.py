@@ -56,6 +56,10 @@ class BaseOptions:
         # wandb parameters
         parser.add_argument("--use_wandb", action="store_true", help="if specified, then init wandb logging")
         parser.add_argument("--wandb_project_name", type=str, default="pix2pix-uint16", help="specify wandb project name")
+
+        # grayscale-specific flags
+        parser.add_argument("--save_to_tiff", action="store_true", help="Save visualization images as TIFF instead of PNG")
+
         self.initialized = True
         return parser
 
