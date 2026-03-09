@@ -47,6 +47,8 @@ if __name__ == "__main__":
         web_dir = Path(f"{web_dir}_iter{opt.load_iter}")
     print(f"creating web directory {web_dir}")
     webpage = html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
+    # use tiff if appropriate
+    image_ext = ".tiff" if getattr(opt, "save_to_tiff", False) else ".png"
     # test with eval mode. This only affects layers like batchnorm and dropout.
     if opt.eval:
         model.eval()
@@ -59,5 +61,5 @@ if __name__ == "__main__":
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
             print(f"processing ({i:04d})-th image... {img_path}")
-        save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.display_winsize)
+        save_images(webpage, visuals, img_path, aspect_ratio=opt.aspect_ratio, width=opt.display_winsize, image_ext=image_ext)
     webpage.save()  # save the HTML

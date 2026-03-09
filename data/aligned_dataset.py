@@ -39,9 +39,16 @@ class AlignedDataset(BaseDataset):
             A_paths (str) - - image paths
             B_paths (str) - - image paths (same as A_paths)
         """
-        # read a tiffile image at a random integer index
+        # read an image at a random integer index
         AB_path = self.AB_paths[index]
-        AB = tifffile.imread(AB_path)
+        ext = os.path.splitext(AB_path)[1].lower()
+
+        # read with tifffile if appropriate
+        if ext in (".tif", ".tiff"):
+            AB = tifffile.imread(AB_path)
+        else:
+            AB = np.array(Image.open(AB_path))
+
         # split AB image into A and B
         h, w = AB.shape[:2]
         assert w % 2 == 0, f"Expected even width for side-by-side image, got width={w} for {AB_path}"
