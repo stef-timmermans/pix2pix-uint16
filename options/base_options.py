@@ -58,9 +58,16 @@ class BaseOptions:
         parser.add_argument("--wandb_project_name", type=str, default="pix2pix-uint16", help="specify wandb project name")
 
         # grayscale-specific flags
-        parser.add_argument("--save_to_tiff", action="store_true", help="Save visualization images as TIFF instead of PNG")
-        parser.add_argument("--save_fake_only", action="store_true", help="Only save generated output images (fake_A / fake_B)")
+        parser.add_argument("--save_to_tiff", action="store_true", help="save visualization images as TIFF instead of PNG")
+        parser.add_argument("--save_fake_only", action="store_true", help="only save generated output images (fake_A / fake_B)")
         parser.add_argument("--output_resolution", type=str, default="uint16", choices=["uint8", "uint16"], help="bit depth for saved visualization images")
+
+        # reconstruction loss parameters
+        parser.add_argument("--recon_loss", type=str, default="l1", choices=["l1", "foreground_aware"], help="type of reconstruction loss")
+        parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of pixels used to estimate local background")
+        parser.add_argument("--min_importance", type=float, default=0.2, help="minimum importance weight")
+        parser.add_argument("--max_importance", type=float, default=3.0, help="maximum importance weight")
+        parser.add_argument("--importance_gamma", type=float, default=1.0, help="importance curve shape parameter")
 
         self.initialized = True
         return parser
