@@ -12,11 +12,9 @@ This fork modifies the data pipeline so that high-bit-depth images can be used f
 
 - Linux or macOS
 - Python 3
-- CPU or NVIDIA GPU + CUDA CuDNN
+- CPU or NVIDIA GPU + CUDA + cuDNN recommended
 
-## Getting Started
-
-### Installation
+## Installation
 
 - Clone this repo:
 
@@ -37,28 +35,84 @@ and then activate the environment by
 conda activate pix2pix-uint
 ```
 
-### pix2pix train/test
+## Required Arguments
 
-
-- To log training progress and test images to W&B dashboard, set the `--use_wandb` flag with training script
-- Train a model:
-
-```bash
-#!./scripts/train_pix2pix.sh
-python train.py --dataroot ./datasets/<your-dataset> --name <your-dataset> --model pix2pix --direction BtoA  --use_wandb
+```
+--dtype {uint8,uint16,uint32} \     # input data type
+--input_nc {1,3} \                  # input channel count
+--output_nc {1,3}                   # output channel count
 ```
 
-- Test the model (`bash ./scripts/test_pix2pix.sh`):
+## Dataset Structure
 
-```bash
-#!./scripts/test_pix2pix.sh
-python test.py --dataroot ./datasets/<your-dataset> --name <your-dataset> --model pix2pix --direction BtoA
+`--dataroot` must point to a dataset directory structured as follows:
+
+```
+dataroot/
+├── A/
+│   ├── train/
+│   ├── val/
+│   └── test/
+├── B/
+│   ├── train/
+│   ├── val/
+│   └── test/
+└── AB/
+    ├── train/
+    ├── val/
+    └── test/
 ```
 
-### Multi-GPU training
+## Training
 
-To train a model on multiple GPUs, please use `torchrun --nproc_per_node=4 train.py ...` instead of `python train.py ...`. We also need to use synchronized batchnorm by setting `--norm sync_batch` (or `--norm sync_instance` for instance normgalization). The `--norm batch` is not compatible with DDP.
+```
+python train.py \
+    --dataroot ./datasets/<dataset> \
+    --name <experiment> \
+    --model pix2pix \
+    --direction AtoB \
+    --dtype uint16 \
+    --input_nc 1 \
+    --output_nc 1 \
+    --use_wandb
+```
 
+## Testing
+
+```
+python test.py \
+    --dataroot ./datasets/<dataset> \
+    --name <experiment> \
+    --model pix2pix \
+    --direction AtoB \
+    --dtype uint16 \
+    --input_nc 1 \
+    --output_nc 1
+```
+
+## Optional Foreground‑Aware Loss
+
+```
+--recon_loss foreground_aware \
+--background_percentile 5 \
+--min_importance 0.2 \
+--max_importance 3 \
+--importance_scale 1000 \
+--importance_gamma 2
+```
+
+## Multi‑GPU
+
+This repository supports PyTorch Distributed Data Parallel (DDP) training.
+
+To launch multi-GPU training, use **torchrun** instead of `python`.
+
+Example (4 GPUs):
+
+```
+torchrun --nproc_per_node=4 train.py \
+    --your_args
+```
 
 ## Citation
 
