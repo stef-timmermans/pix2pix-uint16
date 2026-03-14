@@ -67,6 +67,7 @@ class BaseOptions:
         parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of pixels used to estimate local background")
         parser.add_argument("--min_importance", type=float, default=0.2, help="minimum importance weight")
         parser.add_argument("--max_importance", type=float, default=3.0, help="maximum importance weight")
+        parser.add_argument("--importance_scale", type=float, default=1000.0, help="raw intensity distance above background at which a pixel reaches maximum importance")
         parser.add_argument("--importance_gamma", type=float, default=1.0, help="importance curve shape parameter")
 
         self.initialized = True

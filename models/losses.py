@@ -26,8 +26,8 @@ def _foreground_importance_l1(
     background_percentile: float,
     min_importance: float,
     max_importance: float,
-    gamma: float,
-    eps: float = 1e-8,
+    importance_scale: float,
+    gamma: float = 1.0,
 ) -> torch.Tensor:
     """
     Foreground-aware weighted L1 reconstruction loss.
@@ -41,7 +41,7 @@ def _foreground_importance_l1(
 
     Benefits of approach:
     - No fixed absolute intensity tied to specific data
-    - Importance defined based on patch's own distribution; no messy I/O
+    - Importance defined relative to distance from patch-estimated background
     - Empty/background-only patches remain viable
     - Foreground importance is greatly increased but background is still considered
 
@@ -65,12 +65,13 @@ def _foreground_importance_l1(
         max_importance (float):
             Maximum weight assigned to strongly foreground-like pixels.
 
-        gamma (float):
-            Shape parameter controlling how quickly importance increases
-            as intensity rises above the background reference.
+        importance_scale (float):
+            Raw intensity distance above background at which importance
+            approaches its upper range.
 
-        eps (float):
-            Small constant used to prevent division-by-zero during normalization.
+        gamma (float):
+            Optional shape parameter controlling how quickly importance
+            rises with distance above background.
 
     Returns:
         torch.Tensor:
@@ -89,6 +90,12 @@ def _foreground_importance_l1(
     if max_importance < min_importance:
         raise ValueError("max_importance must be >= min_importance")
 
+    if importance_scale <= 0:
+        raise ValueError("importance_scale must be > 0")
+
+    if gamma <= 0:
+        raise ValueError("gamma must be > 0")
+
     B, C, H, W = target.shape
 
     # Flatten spatial dims; operate per patch
@@ -106,12 +113,11 @@ def _foreground_importance_l1(
     # Distance above background
     above_bg = (flat_target - background).clamp(min=0.0)
 
-    # Normalize per patch to stabilize scale (range [0, 1])
-    max_above_bg = above_bg.amax(dim=-1, keepdim=True).clamp(min=eps)
-    norm_above_bg = above_bg / max_above_bg
+    # Smooth bounded importance curve based on raw distance from background
+    scaled = (above_bg / importance_scale).clamp(min=0.0, max=1.0)
+    scaled = scaled.pow(gamma)
 
-    # Smooth importance curve
-    scaled = norm_above_bg.pow(gamma)
+    # Set weights
     weights = min_importance + (max_importance - min_importance) * scaled
 
     # Compute weighted L1
@@ -156,6 +162,7 @@ def reconstruction_loss(
             background_percentile=opt.background_percentile,
             min_importance=opt.min_importance,
             max_importance=opt.max_importance,
+            importance_scale=opt.importance_scale,
             gamma=opt.importance_gamma,
         )
 
