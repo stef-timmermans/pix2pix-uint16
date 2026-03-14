@@ -63,6 +63,8 @@ dataroot/
     └── test/
 ```
 
+`AB` is the only folder actually used during training/evaluation, so if it has been properly prepared, the other directories can be cleared.
+
 ## Training
 
 ```
