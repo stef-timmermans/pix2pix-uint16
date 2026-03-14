@@ -8,6 +8,8 @@ from pathlib import Path
 import torch.distributed as dist
 import os
 
+from util.types import dtype_max
+
 
 def tensor2im(input_image, imtype=np.uint8):
     """Converts a Tensor array into a numpy image array.
@@ -23,11 +25,7 @@ def tensor2im(input_image, imtype=np.uint8):
             return input_image
         image_numpy = image_tensor[0].cpu().float().numpy()  # convert it into a numpy array
 
-        if imtype == np.uint16:
-            scale = 65535.0
-        else:
-            scale = 255.0
-
+        scale = dtype_max(np.dtype(imtype).name)
         image_numpy = (np.transpose(image_numpy, (1, 2, 0)) + 1) / 2.0 * scale  # post-processing: transpose and scaling
 
         if image_numpy.shape[2] == 1:  # keep grayscale as 2D instead of forcing RGB
@@ -98,9 +96,9 @@ def save_image(image_numpy, image_path, aspect_ratio=1.0):
         h, w = image_numpy.shape[:2]
 
     if aspect_ratio > 1.0:
-        image_pil = image_pil.resize((h, int(w * aspect_ratio)), Image.BICUBIC)
+        image_pil = image_pil.resize((int(w * aspect_ratio), h), Image.BICUBIC)
     if aspect_ratio < 1.0:
-        image_pil = image_pil.resize((int(h / aspect_ratio), w), Image.BICUBIC)
+        image_pil = image_pil.resize((w, int(h / aspect_ratio)), Image.BICUBIC)
     image_pil.save(image_path)
 
 

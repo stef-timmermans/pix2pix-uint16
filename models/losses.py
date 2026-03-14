@@ -1,6 +1,8 @@
 import torch
 import torch.nn.functional as F
 
+from util.types import dtype_max
+
 
 def _standard_l1(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """
@@ -66,8 +68,8 @@ def _foreground_importance_l1(
             Maximum weight assigned to strongly foreground-like pixels.
 
         importance_scale (float):
-            Raw intensity distance above background at which importance
-            approaches its upper range.
+            Intensity distance above background in normalized tensor space
+            at which importance approaches its upper range.
 
         gamma (float):
             Optional shape parameter controlling how quickly importance
@@ -113,7 +115,7 @@ def _foreground_importance_l1(
     # Distance above background
     above_bg = (flat_target - background).clamp(min=0.0)
 
-    # Smooth bounded importance curve based on raw distance from background
+    # Smooth bounded importance curve in normalized tensor space
     scaled = (above_bg / importance_scale).clamp(min=0.0, max=1.0)
     scaled = scaled.pow(gamma)
 
@@ -124,8 +126,9 @@ def _foreground_importance_l1(
     flat_pred = pred.view(B, C, -1)
     l1_map = torch.abs(flat_pred - flat_target)
 
+    # No weight normalization; preserves lower loss for background patches.
+    # Loss = average importance-adjusted per-pixel reconstruction error.
     weighted = weights * l1_map
-
     return weighted.mean()
 
 
@@ -151,18 +154,22 @@ def reconstruction_loss(
         torch.Tensor:
             Scalar reconstruction loss.
     """
+    # Convert appropriate hyperparameters to the normalized tensor space [-1, 1].
+    max_val = dtype_max(opt.dtype)
 
     if opt.recon_loss == "l1":
         return _standard_l1(pred, target)
 
     if opt.recon_loss == "foreground_aware":
+        importance_scale = (opt.importance_scale / max_val) * 2.0
+
         return _foreground_importance_l1(
             pred=pred,
             target=target,
             background_percentile=opt.background_percentile,
             min_importance=opt.min_importance,
             max_importance=opt.max_importance,
-            importance_scale=opt.importance_scale,
+            importance_scale=importance_scale,
             gamma=opt.importance_gamma,
         )
 

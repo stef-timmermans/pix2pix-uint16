@@ -12,6 +12,8 @@ import torch
 import torch.nn.functional as F
 import functools
 
+from util.types import dtype_max
+
 
 class BaseDataset(data.Dataset, ABC):
     """This class is an abstract base class (ABC) for datasets.
@@ -129,7 +131,7 @@ def _flip_tensor(img):
     return torch.flip(img, dims=[2])  # flip width dimension
 
 
-def _to_tensor_from_array(img, grayscale=False):
+def _to_tensor_from_array(img, grayscale=False, opt=None):
     img = np.asarray(img)
 
     if img.ndim == 2:
@@ -141,7 +143,9 @@ def _to_tensor_from_array(img, grayscale=False):
         img = img[..., :1]
 
     if np.issubdtype(img.dtype, np.integer):
-        max_val = np.iinfo(img.dtype).max  # works for uint8/uint16/uint32
+        if opt is None:
+            raise ValueError("opt must be provided for integer image normalization")
+        max_val = dtype_max(opt.dtype)
         img = img.astype(np.float32) / float(max_val)
     else:
         img = img.astype(np.float32)
@@ -149,13 +153,13 @@ def _to_tensor_from_array(img, grayscale=False):
     return torch.from_numpy(np.ascontiguousarray(np.transpose(img, (2, 0, 1)))).float()
 
 
-def _prepare_input_tensor(img, grayscale=False):
+def _prepare_input_tensor(img, grayscale=False, opt=None):
     if isinstance(img, torch.Tensor):
         tensor = img.float()
         if tensor.ndim == 2:
             tensor = tensor.unsqueeze(0)
     else:
-        tensor = _to_tensor_from_array(img, grayscale=grayscale)
+        tensor = _to_tensor_from_array(img, grayscale=grayscale, opt=opt)
 
     if grayscale and tensor.shape[0] != 1:
         tensor = tensor[:1, :, :]
@@ -164,7 +168,7 @@ def _prepare_input_tensor(img, grayscale=False):
 
 
 def _apply_transform(img, opt, params=None, grayscale=False, method=transforms.InterpolationMode.BICUBIC, convert=True):
-    tensor = _prepare_input_tensor(img, grayscale=grayscale)
+    tensor = _prepare_input_tensor(img, grayscale=grayscale, opt=opt)
 
     if "resize" in opt.preprocess:
         tensor = _resize_tensor(tensor, (opt.load_size, opt.load_size), method)

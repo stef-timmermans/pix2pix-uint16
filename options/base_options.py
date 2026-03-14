@@ -25,8 +25,6 @@ class BaseOptions:
         parser.add_argument("--checkpoints_dir", type=str, default="./checkpoints", help="models are saved here")
         # model parameters
         parser.add_argument("--model", type=str, default="pix2pix", help="chooses which model to use. [ pix2pix ]")
-        parser.add_argument("--input_nc", type=int, default=1, help="# of input image channels: 3 for RGB and 1 for grayscale")
-        parser.add_argument("--output_nc", type=int, default=1, help="# of output image channels: 3 for RGB and 1 for grayscale")
         parser.add_argument("--ngf", type=int, default=64, help="# of gen filters in the last conv layer")
         parser.add_argument("--ndf", type=int, default=64, help="# of discrim filters in the first conv layer")
         parser.add_argument("--netD", type=str, default="basic", help="specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator")
@@ -57,10 +55,14 @@ class BaseOptions:
         parser.add_argument("--use_wandb", action="store_true", help="if specified, then init wandb logging")
         parser.add_argument("--wandb_project_name", type=str, default="pix2pix-uint16", help="specify wandb project name")
 
+        # image datatype configuration
+        parser.add_argument("--dtype", type=str, required=True, choices=["uint8", "uint16", "uint32"], help="integer dtype of raw images before normalization")
+
         # grayscale-specific flags
+        parser.add_argument("--input_nc", type=int, required=True, help="# of input image channels: 3 for RGB and 1 for grayscale")
+        parser.add_argument("--output_nc", type=int, required=True, help="# of output image channels: 3 for RGB and 1 for grayscale")
         parser.add_argument("--save_to_tiff", action="store_true", help="save visualization images as TIFF instead of PNG")
         parser.add_argument("--save_fake_only", action="store_true", help="only save generated output images (fake_A / fake_B)")
-        parser.add_argument("--output_resolution", type=str, default="uint16", choices=["uint8", "uint16"], help="bit depth for saved visualization images")
 
         # reconstruction loss parameters
         parser.add_argument("--recon_loss", type=str, default="l1", choices=["l1", "foreground_aware"], help="type of reconstruction loss")
@@ -68,8 +70,7 @@ class BaseOptions:
         parser.add_argument("--min_importance", type=float, default=0.2, help="minimum importance weight")
         parser.add_argument("--max_importance", type=float, default=3.0, help="maximum importance weight")
         parser.add_argument("--importance_scale", type=float, default=1000.0, help="raw intensity distance above background at which a pixel reaches maximum importance")
-        parser.add_argument("--importance_gamma", type=float, default=1.0, help="importance curve shape parameter")
-
+        parser.add_argument("--importance_gamma", type=float, default=2.0, help="exponent controlling importance curve shape (>1 suppresses importance of pixels close to background)")
         self.initialized = True
         return parser
 
