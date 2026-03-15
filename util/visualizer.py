@@ -9,7 +9,7 @@ import os
 import torch.distributed as dist
 
 
-def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image_ext=".png", output_imtype=np.uint16):
+def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image_ext=".png", output_imtype=np.uint8):
     """Save images to the disk.
 
     Parameters:
@@ -63,7 +63,7 @@ class Visualizer:
         self.use_wandb = opt.use_wandb
         self.current_epoch = 0
         self.image_ext = ".tiff" if getattr(opt, "save_to_tiff", False) else ".png"
-        self.output_imtype = np.uint16 if getattr(opt, "output_resolution", "uint16") == "uint16" else np.uint8
+        self.output_imtype = np.dtype(opt.dtype).type
 
         # Initialize wandb if enabled
         if self.use_wandb:

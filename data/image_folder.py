@@ -5,6 +5,8 @@ so that this class can load images from both current directory and its subdirect
 """
 
 import torch.utils.data as data
+import tifffile
+import numpy as np
 from pathlib import Path
 from PIL import Image
 
@@ -35,7 +37,10 @@ def make_dataset(dir, max_dataset_size=float("inf")):
 
 
 def default_loader(path):
-    return Image.open(path)
+    ext = Path(path).suffix.lower()
+    if ext in (".tif", ".tiff"):
+        return tifffile.imread(path)
+    return np.array(Image.open(path))
 
 
 class ImageFolder(data.Dataset):
