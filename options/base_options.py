@@ -57,6 +57,9 @@ class BaseOptions:
 
         # image datatype configuration
         parser.add_argument("--dtype", type=str, required=True, choices=["uint8", "uint16", "uint32"], help="integer dtype of raw images before normalization")
+        parser.add_argument("--normalize-source", action="store_true", help="apply percentile normalization to source images before tensor mapping")
+        parser.add_argument("--source-norm-low", type=float, default=1.0, help="lower percentile for source normalization")
+        parser.add_argument("--source-norm-high", type=float, default=99.0, help="upper percentile for source normalization")
 
         # grayscale-specific flags
         parser.add_argument("--input_nc", type=int, required=True, help="# of input image channels: 3 for RGB and 1 for grayscale")

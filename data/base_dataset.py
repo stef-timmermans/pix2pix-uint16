@@ -209,3 +209,16 @@ def get_transform(opt, params=None, grayscale=False, method=transforms.Interpola
         method=method,
         convert=convert,
     )
+
+def normalize_percentile(img, low, high, eps=1e-6):
+    img = np.asarray(img).astype(np.float32)
+
+    lo = np.percentile(img, low)
+    hi = np.percentile(img, high)
+
+    if hi <= lo:
+        return img
+
+    img = np.clip(img, lo, hi)
+    img = (img - lo) / (hi - lo + eps)
+    return img

@@ -1,5 +1,5 @@
 import os
-from data.base_dataset import BaseDataset, get_params, get_transform
+from data.base_dataset import BaseDataset, get_params, get_transform, normalize_percentile
 from data.image_folder import make_dataset
 from PIL import Image
 import tifffile
@@ -56,7 +56,22 @@ class AlignedDataset(BaseDataset):
         A = AB[:, :w2]
         B = AB[:, w2:]
 
-        # apply the same transform to both A and B
+        if self.opt.normalize_source:
+            # Only normalize source domain
+            # TODO: Support normalizing target domain (more complex due to denormalization)
+            if self.opt.direction == "AtoB":
+                A = normalize_percentile(
+                    A,
+                    low=self.opt.source_norm_low,
+                    high=self.opt.source_norm_high,
+                )
+            else:
+                B = normalize_percentile(
+                    B,
+                    low=self.opt.source_norm_low,
+                    high=self.opt.source_norm_high,
+                )
+
         transform_params = get_params(self.opt, (w2, h))
         A_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
         B_transform = get_transform(self.opt, transform_params, grayscale=(self.output_nc == 1))
