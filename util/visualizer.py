@@ -162,7 +162,7 @@ class Visualizer:
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         message = f"[Rank {local_rank}] (epoch: {epoch}, iters: {iters}, time: {t_comp:.3f}, data: {t_data:.3f}) "
         for k, v in losses.items():
-            message += f", {k}: {v:.3f}"
+            message += f", {k}: {v:.8f}"
         message += "\n"
         print(message)  # print the message on ALL ranks with rank info
 
