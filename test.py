@@ -22,6 +22,8 @@ from models import create_model
 from util.visualizer import save_images
 from util import html
 import torch
+import csv
+from models.losses import reconstruction_loss
 
 try:
     import wandb
@@ -54,11 +56,25 @@ if __name__ == "__main__":
     # test with eval mode. This only affects layers like batchnorm and dropout.
     if opt.eval:
         model.eval()
+
+    total_recon_loss = 0.0
+    n_loss = 0
+
     for i, data in enumerate(dataset):
         if i >= opt.num_test:  # only apply our model to opt.num_test images.
             break
         model.set_input(data)  # unpack data from data loader
         model.test()  # run inference
+
+        if opt.compute_eval_loss:
+            loss = reconstruction_loss(
+                pred=model.fake_B,
+                target=model.real_B,
+                opt=opt,
+            )
+            total_recon_loss += loss.item()
+            n_loss += 1
+
         visuals = model.get_current_visuals()  # get image results
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
@@ -72,4 +88,25 @@ if __name__ == "__main__":
             image_ext=image_ext,
             output_imtype=output_imtype,
         )
+
+    if opt.compute_eval_loss:
+        avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
+        print(f"{opt.phase} avg_recon_loss: {avg_recon_loss:.6f}")
+
+        metrics_path = web_dir / f"{opt.phase}_metrics.csv"
+        with open(metrics_path, "w", newline="") as f:
+            writer = csv.DictWriter(
+                f,
+                fieldnames=["epoch", "num_images", "avg_recon_loss"],
+            )
+            writer.writeheader()
+            writer.writerow(
+                {
+                    "epoch": opt.epoch,
+                    "num_images": n_loss,
+                    "avg_recon_loss": avg_recon_loss,
+                }
+            )
+        print(f"wrote metrics to {metrics_path}")
+
     webpage.save()  # save the HTML
