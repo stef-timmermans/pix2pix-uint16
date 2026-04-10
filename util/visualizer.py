@@ -77,11 +77,11 @@ class Visualizer:
             else:
                 self.wandb_run = None
 
-        if self.use_html:  # create an HTML object at <checkpoints_dir>/web/; images will be saved under <checkpoints_dir>/web/images/
-            self.web_dir = Path(opt.checkpoints_dir) / opt.name / "web"
-            self.img_dir = self.web_dir / "images"
-            print(f"create web directory {self.web_dir}...")
-            util.mkdirs([self.web_dir, self.img_dir])
+        self.web_dir = Path(opt.checkpoints_dir) / opt.name / "web"
+        self.img_dir = self.web_dir / "images"
+        print(f"create image output directory {self.web_dir}...")
+        util.mkdirs([self.web_dir, self.img_dir])
+
         # create a logging file to store training losses
         self.log_name = Path(opt.checkpoints_dir) / opt.name / "loss_log.txt"
         with open(self.log_name, "a") as log_file:
@@ -115,7 +115,7 @@ class Visualizer:
                 ims_dict[f"results/{label}"] = wandb_image
             self.wandb_run.log(ims_dict, step=total_iters)
 
-        if self.use_html and (save_result or not self.saved):  # save images to an HTML file if they haven't been saved.
+        if save_result or not self.saved:  # save images to the disk; update HTML only if enabled
             self.saved = True
             # save images to the disk
             for label, image in visuals.items():
@@ -126,18 +126,19 @@ class Visualizer:
                 util.save_image(image_numpy, img_path)
 
             # update website
-            webpage = html.HTML(self.web_dir, f"Experiment name = {self.name}", refresh=1)
-            webpage.add_header(f"epoch [{epoch}], total_iters [{total_iters}]")
-            ims, txts, links = [], [], []
+            if self.use_html:
+                webpage = html.HTML(self.web_dir, f"Experiment name = {self.name}", refresh=1)
+                webpage.add_header(f"epoch [{epoch}], total_iters [{total_iters}]")
+                ims, txts, links = [], [], []
 
-            for label, image in visuals.items():
-                rel_path = f"{label}/epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
-                ims.append(rel_path)
-                txts.append(label)
-                links.append(rel_path)
+                for label, image in visuals.items():
+                    rel_path = f"{label}/epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
+                    ims.append(rel_path)
+                    txts.append(label)
+                    links.append(rel_path)
 
-            webpage.add_images(ims, txts, links, width=self.win_size)
-            webpage.save()
+                webpage.add_images(ims, txts, links, width=self.win_size)
+                webpage.save()
 
     def plot_current_losses(self, total_iters, losses):
         """Log current losses to wandb
