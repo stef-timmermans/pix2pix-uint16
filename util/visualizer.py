@@ -30,12 +30,14 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image
     ims, txts, links = [], [], []
     for label, im_data in visuals.items():
         im = util.tensor2im(im_data, imtype=output_imtype)
-        image_name = f"{name}_{label}{image_ext}"
-        save_path = image_dir / image_name
+        label_dir = image_dir / label
+        label_dir.mkdir(parents=True, exist_ok=True)
+        rel_path = f"{label}/{name}{image_ext}"
+        save_path = image_dir / rel_path
         util.save_image(im, save_path, aspect_ratio=aspect_ratio)
-        ims.append(image_name)
+        ims.append(rel_path)
         txts.append(label)
-        links.append(image_name)
+        links.append(rel_path)
     webpage.add_images(ims, txts, links, width=width)
 
 
@@ -118,21 +120,23 @@ class Visualizer:
             # save images to the disk
             for label, image in visuals.items():
                 image_numpy = util.tensor2im(image, imtype=self.output_imtype)
-                img_path = self.img_dir / f"epoch{epoch:03d}_{label}{self.image_ext}"
+                label_dir = self.img_dir / label
+                label_dir.mkdir(parents=True, exist_ok=True)
+                img_path = label_dir / f"epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
                 util.save_image(image_numpy, img_path)
 
             # update website
             webpage = html.HTML(self.web_dir, f"Experiment name = {self.name}", refresh=1)
-            for n in range(epoch, 0, -1):
-                webpage.add_header(f"epoch [{n}]")
-                ims, txts, links = [], [], []
+            webpage.add_header(f"epoch [{epoch}], total_iters [{total_iters}]")
+            ims, txts, links = [], [], []
 
-                for label, image in visuals.items():
-                    img_path = f"epoch{n:03d}_{label}{self.image_ext}"
-                    ims.append(img_path)
-                    txts.append(label)
-                    links.append(img_path)
-                webpage.add_images(ims, txts, links, width=self.win_size)
+            for label, image in visuals.items():
+                rel_path = f"{label}/epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
+                ims.append(rel_path)
+                txts.append(label)
+                links.append(rel_path)
+
+            webpage.add_images(ims, txts, links, width=self.win_size)
             webpage.save()
 
     def plot_current_losses(self, total_iters, losses):
