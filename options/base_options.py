@@ -69,11 +69,10 @@ class BaseOptions:
 
         # reconstruction loss parameters
         parser.add_argument("--recon_loss", type=str, default="l1", choices=["l1", "foreground_aware"], help="type of reconstruction loss")
-        parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of pixels used to estimate local background")
-        parser.add_argument("--min_importance", type=float, default=0.2, help="minimum importance weight")
-        parser.add_argument("--max_importance", type=float, default=3.0, help="maximum importance weight")
-        parser.add_argument("--importance_scale", type=float, default=1000.0, help="raw intensity distance above background at which a pixel reaches maximum importance")
-        parser.add_argument("--importance_gamma", type=float, default=2.0, help="exponent controlling importance curve shape (>1 suppresses importance of pixels close to background)")
+        parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of target pixels used to estimate local background")
+        parser.add_argument("--foreground_margin", type=float, default=500.0, help="raw intensity margin above estimated background required to count as foreground")
+        parser.add_argument("--fg_weight", type=float, default=20.0, help="weight applied to foreground-region reconstruction loss")
+        parser.add_argument("--bg_weight", type=float, default=0.5, help="weight applied to background-region reconstruction loss")
         self.initialized = True
         return parser
 
