@@ -129,7 +129,7 @@ if __name__ == "__main__":
         if opt.compute_eval_loss:
             loss = reconstruction_loss(
                 pred=fake_B,
-                target=data["B"],
+                target=data["B"].to(fake_B.device),
                 opt=opt,
             )
             total_recon_loss += loss.item()
