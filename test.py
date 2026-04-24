@@ -118,6 +118,14 @@ if __name__ == "__main__":
         if i >= opt.num_test:  # only apply our model to opt.num_test images.
             break
 
+        if i == 0:
+            _, _, h, w = data["A"].shape
+            print(f"Loaded input tensor size: {h}x{w}")
+            if opt.tiled_inference:
+                print(f"Effective eval patch size: {opt.tile_size}x{opt.tile_size}")
+            else:
+                print(f"Effective eval input size: {h}x{w}")
+
         if opt.tiled_inference:
             visuals, fake_B = tiled_test(model, data, opt)
         else:
