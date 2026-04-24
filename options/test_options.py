@@ -19,9 +19,14 @@ class TestOptions(BaseOptions):
         # Compute losses during evaluation
         parser.add_argument("--compute_eval_loss", action="store_true", help="compute and save reconstruction loss during evaluation")
 
-        # rewrite devalue values
+        # rewrite default values
         parser.set_defaults(model='pix2pix')
         # To avoid cropping, the load_size should be the same as crop_size
         parser.set_defaults(load_size=parser.get_default('crop_size'))
+
+        # evaluation tiling options
+        parser.add_argument("--tiled_inference", action="store_true", help="use tiled inference")
+        parser.add_argument("--tile_size", type=int, default=256, help="tiled inference size")
+        parser.add_argument("--tile_stride", type=int, default=256, help="tiled inference stride")
         self.isTrain = False
         return parser

@@ -31,6 +31,60 @@ except ImportError:
     print('Warning: wandb package cannot be found. The option "--use_wandb" will result in error.')
 
 
+def tiled_test(model, data, opt):
+    tile_size = opt.tile_size
+    tile_stride = opt.tile_stride
+    real_A = data["A"]
+    _, _, h, w = real_A.shape
+
+    assert h % tile_size == 0
+    assert w % tile_size == 0
+    assert tile_stride > 0
+    assert tile_stride <= tile_size
+    assert (h - tile_size) % tile_stride == 0
+    assert (w - tile_size) % tile_stride == 0
+
+    fake_B = None
+    weights = None
+
+    for y in range(0, h - tile_size + 1, tile_stride):
+        for x in range(0, w - tile_size + 1, tile_stride):
+            tile_data = dict(data)
+            tile_data["A"] = real_A[:, :, y:y + tile_size, x:x + tile_size]
+            if "B" in tile_data:
+                tile_data["B"] = data["B"][:, :, y:y + tile_size, x:x + tile_size]
+
+            model.set_input(tile_data)
+            model.test()
+
+            fake_tile = model.fake_B.detach()
+
+            if fake_B is None:
+                fake_B = torch.zeros(
+                    fake_tile.shape[0],
+                    fake_tile.shape[1],
+                    h,
+                    w,
+                    dtype=fake_tile.dtype,
+                    device=fake_tile.device,
+                )
+                weights = torch.zeros_like(fake_B)
+
+            fake_B[:, :, y:y + tile_size, x:x + tile_size] += fake_tile
+            weights[:, :, y:y + tile_size, x:x + tile_size] += 1
+
+    fake_B = fake_B / weights
+
+    visuals = {
+        "real_A": real_A,
+        "fake_B": fake_B,
+    }
+    if "B" in data:
+        visuals["real_B"] = data["B"]
+
+    return visuals, fake_B
+
+
 if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
     opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -63,19 +117,24 @@ if __name__ == "__main__":
     for i, data in enumerate(dataset):
         if i >= opt.num_test:  # only apply our model to opt.num_test images.
             break
-        model.set_input(data)  # unpack data from data loader
-        model.test()  # run inference
+
+        if opt.tiled_inference:
+            visuals, fake_B = tiled_test(model, data, opt)
+        else:
+            model.set_input(data)  # unpack data from data loader
+            model.test()  # run inference
+            visuals = model.get_current_visuals()  # get image results
+            fake_B = model.fake_B
 
         if opt.compute_eval_loss:
             loss = reconstruction_loss(
-                pred=model.fake_B,
-                target=model.real_B,
+                pred=fake_B,
+                target=data["B"],
                 opt=opt,
             )
             total_recon_loss += loss.item()
             n_loss += 1
 
-        visuals = model.get_current_visuals()  # get image results
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
             print(f"processing ({i:04d})-th image... {img_path}")
