@@ -29,7 +29,7 @@ class BaseModel(ABC):
             -- self.loss_names (str list):          specify the training losses that you want to plot and save.
             -- self.model_names (str list):         define networks used in our training.
             -- self.visual_names (str list):        specify the images that you want to display and save.
-            -- self.optimizers (optimizer list):    define and initialize optimizers. You can define one optimizer for each network. If two networks are updated at the same time, you can use itertools.chain to group them. See cycle_gan_model.py for an example.
+            -- self.optimizers (optimizer list):    define and initialize optimizers.
         """
         self.opt = opt
         self.isTrain = opt.isTrain
@@ -114,9 +114,12 @@ class BaseModel(ABC):
 
                 # Wrap networks with DDP after loading
                 if dist.is_initialized():
-                    # Check if using syncbatch normalization for DDP
-                    if self.opt.norm == "syncbatch":
-                        raise ValueError(f"For distributed training, opt.norm must be 'syncbatch' or 'inst', but got '{self.opt.norm}'. " "Please set --norm syncbatch for multi-GPU training.")
+                    # Plain batchnorm keeps per-rank statistics; enforce explicitly supported modes.
+                    if self.opt.norm == "batch":
+                        raise ValueError(
+                            "For distributed training, use --norm syncbatch or --norm instance "
+                            "instead of plain batchnorm."
+                        )
 
                     net = torch.nn.parallel.DistributedDataParallel(net, device_ids=[self.device.index])
                     # Sync all processes after DDP wrapping

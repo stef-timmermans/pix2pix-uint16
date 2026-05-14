@@ -20,11 +20,11 @@ class BaseOptions:
     def initialize(self, parser):
         """Define the common options that are used in both training and test."""
         # basic parameters
-        parser.add_argument("--dataroot", required=True, help="path to images (should have subfolders trainA, trainB, valA, valB, etc)")
+        parser.add_argument("--dataroot", required=True, help="path to the dataset root containing AB/<split>, or the AB directory itself")
         parser.add_argument("--name", type=str, default="experiment_name", help="name of the experiment. It decides where to store samples and models")
         parser.add_argument("--checkpoints_dir", type=str, default="./checkpoints", help="models are saved here")
         # model parameters
-        parser.add_argument("--model", type=str, default="pix2pix", help="chooses which model to use. [ pix2pix ]")
+        parser.add_argument("--model", type=str, default="pix2pix", choices=["pix2pix"], help="model to use")
         parser.add_argument("--ngf", type=int, default=64, help="# of gen filters in the last conv layer")
         parser.add_argument("--ndf", type=int, default=64, help="# of discrim filters in the first conv layer")
         parser.add_argument("--netD", type=str, default="basic", help="specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator")
@@ -35,8 +35,8 @@ class BaseOptions:
         parser.add_argument("--init_gain", type=float, default=0.02, help="scaling factor for normal, xavier and orthogonal.")
         parser.add_argument("--no_dropout", action="store_true", help="no dropout for the generator")
         # dataset parameters
-        parser.add_argument("--dataset_mode", type=str, default="aligned", help="chooses how datasets are loaded. [aligned]")
-        parser.add_argument("--direction", type=str, default="AtoB", help="AtoB or BtoA")
+        parser.add_argument("--dataset_mode", type=str, default="aligned", choices=["aligned"], help="dataset loader to use")
+        parser.add_argument("--direction", type=str, default="AtoB", choices=["AtoB", "BtoA"], help="mapping direction")
         parser.add_argument("--serial_batches", action="store_true", help="if true, takes images in order to make batches, otherwise takes them randomly")
         parser.add_argument("--num_threads", default=4, type=int, help="# threads for loading data")
         parser.add_argument("--batch_size", type=int, default=1, help="input batch size")
@@ -55,6 +55,9 @@ class BaseOptions:
         # wandb parameters
         parser.add_argument("--use_wandb", action="store_true", help="if specified, then init wandb logging")
         parser.add_argument("--wandb_project_name", type=str, default="pix2pix-uint16", help="specify wandb project name")
+        parser.add_argument("--wandb_entity", type=str, default=None, help="optional wandb username or team")
+        parser.add_argument("--wandb_mode", type=str, default="online", choices=["online", "offline", "disabled"], help="wandb sync mode")
+        parser.add_argument("--wandb_log_images", action="store_true", help="log generated images to wandb in addition to scalar metrics")
 
         # image datatype configuration
         parser.add_argument("--dtype", type=str, required=True, choices=["uint8", "uint16", "uint32"], help="integer dtype of raw images before normalization")

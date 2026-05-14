@@ -79,7 +79,7 @@ def init_weights(net, init_type="normal", init_gain=0.02):
         init_type (str) -- the name of an initialization method: normal | xavier | kaiming | orthogonal
         init_gain (float)    -- scaling factor for normal, xavier and orthogonal.
 
-    We use 'normal' in the original pix2pix and CycleGAN paper. But xavier and kaiming might
+    We use 'normal' in the original pix2pix implementation. But xavier and kaiming might
     work better for some applications. Feel free to try yourself.
     """
 

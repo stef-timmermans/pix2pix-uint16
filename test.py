@@ -13,7 +13,6 @@ Example:
 See options/base_options.py and options/test_options.py for more test options.
 """
 
-import os
 from pathlib import Path
 import numpy as np
 from options.test_options import TestOptions
@@ -21,14 +20,11 @@ from data import create_dataset
 from models import create_model
 from util.visualizer import save_images
 from util import html
+from util.image_logging import save_visuals_to_directory
 import torch
 import csv
 from models.losses import reconstruction_loss
-
-try:
-    import wandb
-except ImportError:
-    print('Warning: wandb package cannot be found. The option "--use_wandb" will result in error.')
+from util.wandb_helper import finish_run, init_wandb_run, log_visuals, update_config, update_summary
 
 
 def tiled_test(model, data, opt):
@@ -84,7 +80,6 @@ def tiled_test(model, data, opt):
 
     return visuals, fake_B
 
-
 if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
     opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -97,13 +92,29 @@ if __name__ == "__main__":
     dataset = create_dataset(opt)  # create a dataset given opt.dataset_mode and other options
     model = create_model(opt)  # create a model given opt.model and other options
     model.setup(opt)  # regular setup: load and print networks; create schedulers
+    wandb_run = init_wandb_run(
+        opt,
+        job_type="eval",
+        run_name=f"{opt.name}-{opt.phase}-{opt.epoch}",
+    )
+    update_config(
+        wandb_run,
+        {
+            "phase": opt.phase,
+            "epoch": opt.epoch,
+            "tiled_inference": opt.tiled_inference,
+            "compute_eval_loss": opt.compute_eval_loss,
+        },
+    )
 
     # create a website
     web_dir = Path(opt.results_dir) / opt.name / f"{opt.phase}_{opt.epoch}"  # define the website directory
     if opt.load_iter > 0:  # load_iter is 0 by default
         web_dir = Path(f"{web_dir}_iter{opt.load_iter}")
     print(f"creating web directory {web_dir}")
-    webpage = html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
+    webpage = None if opt.no_html else html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
+    image_dir = web_dir / "images"
+    image_dir.mkdir(parents=True, exist_ok=True)
     # use tiff if appropriate
     image_ext = ".tiff" if getattr(opt, "save_to_tiff", False) else ".png"
     output_imtype = np.dtype(opt.dtype).type
@@ -146,15 +157,32 @@ if __name__ == "__main__":
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
             print(f"processing ({i:04d})-th image... {img_path}")
-        save_images(
-            webpage,
-            visuals,
-            img_path,
-            aspect_ratio=opt.aspect_ratio,
-            width=opt.display_winsize,
-            image_ext=image_ext,
-            output_imtype=output_imtype,
-        )
+        if webpage is not None:
+            save_images(
+                webpage,
+                visuals,
+                img_path,
+                aspect_ratio=opt.aspect_ratio,
+                width=opt.display_winsize,
+                image_ext=image_ext,
+                output_imtype=output_imtype,
+            )
+        else:
+            save_visuals_to_directory(
+                image_dir,
+                visuals,
+                img_path,
+                image_ext=image_ext,
+                output_imtype=output_imtype,
+            )
+        if getattr(opt, "wandb_log_images", False):
+            log_visuals(
+                wandb_run,
+                visuals,
+                step=i,
+                prefix="eval",
+                output_imtype=output_imtype,
+            )
 
     if opt.compute_eval_loss:
         avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
@@ -175,5 +203,14 @@ if __name__ == "__main__":
                 }
             )
         print(f"wrote metrics to {metrics_path}")
+        update_summary(
+            wandb_run,
+            {
+                f"{opt.phase}/avg_recon_loss": avg_recon_loss,
+                f"{opt.phase}/num_images": n_loss,
+            },
+        )
 
-    webpage.save()  # save the HTML
+    if webpage is not None:
+        webpage.save()  # save the HTML
+    finish_run(wandb_run)

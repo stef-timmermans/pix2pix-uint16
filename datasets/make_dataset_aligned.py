@@ -66,26 +66,25 @@ if __name__ == '__main__':
     parser.add_argument(
         '--dataset-path',
         dest='dataset_path',
-        help='Which folder to process (it should have subfolders testA, testB, trainA and trainB'
+        help='Dataset root containing trainA/trainB and testA/testB folders'
     )
     args = parser.parse_args()
 
     dataset_folder = args.dataset_path
     print(dataset_folder)
 
-    test_a_path = os.path.join(dataset_folder, 'testA')
-    test_b_path = os.path.join(dataset_folder, 'testB')
-    test_a_file_paths = get_file_paths(test_a_path)
-    test_b_file_paths = get_file_paths(test_b_path)
-    assert(len(test_a_file_paths) == len(test_b_file_paths))
-    test_path = os.path.join(dataset_folder, 'test')
+    ab_root = os.path.join(dataset_folder, 'AB')
 
-    train_a_path = os.path.join(dataset_folder, 'trainA')
-    train_b_path = os.path.join(dataset_folder, 'trainB')
-    train_a_file_paths = get_file_paths(train_a_path)
-    train_b_file_paths = get_file_paths(train_b_path)
-    assert(len(train_a_file_paths) == len(train_b_file_paths))
-    train_path = os.path.join(dataset_folder, 'train')
+    for split in ('train', 'val', 'test'):
+        split_a_path = os.path.join(dataset_folder, f'{split}A')
+        split_b_path = os.path.join(dataset_folder, f'{split}B')
 
-    align_images(test_a_file_paths, test_b_file_paths, test_path)
-    align_images(train_a_file_paths, train_b_file_paths, train_path)
+        if not (os.path.isdir(split_a_path) and os.path.isdir(split_b_path)):
+            continue
+
+        split_a_file_paths = get_file_paths(split_a_path)
+        split_b_file_paths = get_file_paths(split_b_path)
+        assert(len(split_a_file_paths) == len(split_b_file_paths))
+
+        split_path = os.path.join(ab_root, split)
+        align_images(split_a_file_paths, split_b_file_paths, split_path)
