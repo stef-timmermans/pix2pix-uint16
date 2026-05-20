@@ -154,6 +154,15 @@ if __name__ == "__main__":
             total_recon_loss += loss.item()
             n_loss += 1
 
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        f"{opt.phase}/recon_loss": loss.item(),
+                        f"{opt.phase}/running_avg_recon_loss": total_recon_loss / n_loss,
+                    },
+                    step=i,
+                )
+
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
             print(f"processing ({i:04d})-th image... {img_path}")
@@ -187,6 +196,14 @@ if __name__ == "__main__":
     if opt.compute_eval_loss:
         avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
         print(f"{opt.phase} avg_recon_loss: {avg_recon_loss:.6f}")
+
+        if wandb_run is not None:
+            wandb_run.log(
+                {
+                    f"{opt.phase}/avg_recon_loss": avg_recon_loss,
+                    f"{opt.phase}/num_images": n_loss,
+                }
+            )
 
         metrics_path = web_dir / f"{opt.phase}_metrics.csv"
         with open(metrics_path, "w", newline="") as f:

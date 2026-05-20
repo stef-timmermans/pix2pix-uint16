@@ -35,16 +35,21 @@ def has_wandb_credentials() -> bool:
 
     return auth is not None
 
-
+# noinspection PyUnreachableCode
 def init_wandb_run(opt, *, job_type: str, run_name: Optional[str] = None):
     if not getattr(opt, "use_wandb", False):
         return None
 
-    if getattr(opt, "wandb_mode", "online") == "disabled":
-        return None
+    os.environ["WANDB_MODE"] = getattr(opt, "wandb_mode", "online")
 
     if wandb is None:
         raise ImportError("wandb is not installed. Install it or run without --use_wandb.")
+
+    if not has_wandb_credentials():
+        raise RuntimeError(
+            "W&B is enabled for this run, but no credentials were detected. "
+            "Set WANDB_API_KEY or run wandb login before launching."
+        )
 
     if not is_main_process():
         return None
@@ -52,7 +57,6 @@ def init_wandb_run(opt, *, job_type: str, run_name: Optional[str] = None):
     os.environ.setdefault("WANDB_PROJECT", getattr(opt, "wandb_project_name", "pix2pix-uint16"))
     if getattr(opt, "wandb_entity", None):
         os.environ.setdefault("WANDB_ENTITY", opt.wandb_entity)
-    os.environ.setdefault("WANDB_MODE", getattr(opt, "wandb_mode", "online"))
 
     run = (
         wandb.init(
