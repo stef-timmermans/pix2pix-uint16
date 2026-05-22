@@ -13,6 +13,7 @@ Example:
 See options/base_options.py and options/test_options.py for more test options.
 """
 
+import json
 from pathlib import Path
 import numpy as np
 from options.test_options import TestOptions
@@ -111,10 +112,12 @@ if __name__ == "__main__":
     web_dir = Path(opt.results_dir) / opt.name / f"{opt.phase}_{opt.epoch}"  # define the website directory
     if opt.load_iter > 0:  # load_iter is 0 by default
         web_dir = Path(f"{web_dir}_iter{opt.load_iter}")
-    print(f"creating web directory {web_dir}")
-    webpage = None if opt.no_html else html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
+    if not opt.skip_save_images:
+        print(f"creating web directory {web_dir}")
+    webpage = None if (opt.no_html or opt.skip_save_images) else html.HTML(web_dir, f"Experiment = {opt.name}, Phase = {opt.phase}, Epoch = {opt.epoch}")
     image_dir = web_dir / "images"
-    image_dir.mkdir(parents=True, exist_ok=True)
+    if not opt.skip_save_images:
+        image_dir.mkdir(parents=True, exist_ok=True)
     # use tiff if appropriate
     image_ext = ".tiff" if getattr(opt, "save_to_tiff", False) else ".png"
     output_imtype = np.dtype(opt.dtype).type
@@ -165,8 +168,9 @@ if __name__ == "__main__":
 
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
-            print(f"processing ({i:04d})-th image... {img_path}")
-        if webpage is not None:
+            if not opt.skip_save_images:
+                print(f"processing ({i:04d})-th image... {img_path}")
+        if not opt.skip_save_images and webpage is not None:
             save_images(
                 webpage,
                 visuals,
@@ -176,7 +180,7 @@ if __name__ == "__main__":
                 image_ext=image_ext,
                 output_imtype=output_imtype,
             )
-        else:
+        elif not opt.skip_save_images:
             save_visuals_to_directory(
                 image_dir,
                 visuals,
@@ -205,21 +209,23 @@ if __name__ == "__main__":
                 }
             )
 
-        metrics_path = web_dir / f"{opt.phase}_metrics.csv"
-        with open(metrics_path, "w", newline="") as f:
-            writer = csv.DictWriter(
-                f,
-                fieldnames=["epoch", "num_images", "avg_recon_loss"],
-            )
-            writer.writeheader()
-            writer.writerow(
-                {
-                    "epoch": opt.epoch,
-                    "num_images": n_loss,
-                    "avg_recon_loss": avg_recon_loss,
-                }
-            )
-        print(f"wrote metrics to {metrics_path}")
+        print(f"EVAL_METRICS: {json.dumps({'avg_recon_loss': avg_recon_loss, 'num_images': n_loss}, sort_keys=True)}")
+        if not opt.skip_save_images:
+            metrics_path = web_dir / f"{opt.phase}_metrics.csv"
+            with open(metrics_path, "w", newline="") as f:
+                writer = csv.DictWriter(
+                    f,
+                    fieldnames=["epoch", "num_images", "avg_recon_loss"],
+                )
+                writer.writeheader()
+                writer.writerow(
+                    {
+                        "epoch": opt.epoch,
+                        "num_images": n_loss,
+                        "avg_recon_loss": avg_recon_loss,
+                    }
+                )
+            print(f"wrote metrics to {metrics_path}")
         update_summary(
             wandb_run,
             {
@@ -228,6 +234,6 @@ if __name__ == "__main__":
             },
         )
 
-    if webpage is not None:
+    if webpage is not None and not opt.skip_save_images:
         webpage.save()  # save the HTML
     finish_run(wandb_run)

@@ -34,7 +34,8 @@ class Pix2PixModel(BaseModel):
         parser.set_defaults(norm="batch", netG="unet_256", dataset_mode="aligned")
         if is_train:
             parser.set_defaults(gan_mode="vanilla")
-            parser.add_argument("--lambda_L1", type=float, default=100.0, help="weight for L1 loss")
+            parser.add_argument("--lambda_GAN", type=float, default=1.0, help="weight for GAN loss")
+            parser.add_argument("--lambda_L1", type=float, default=100.0, help="weight for reconstruction loss")
 
         return parser
 
@@ -46,7 +47,7 @@ class Pix2PixModel(BaseModel):
         """
         BaseModel.__init__(self, opt)
         # specify the training losses you want to print out. The training/test scripts will call <BaseModel.get_current_losses>
-        self.loss_names = ["G_GAN", "G_L1", "D_real", "D_fake"]
+        self.loss_names = ["G_GAN", "G_L1", "G_total", "D_real", "D_fake"]
         # specify the images you want to save/display. The training/test scripts will call <BaseModel.get_current_visuals>
         if getattr(opt, "save_fake_only", False):
             self.visual_names = ["fake_B"]
@@ -68,8 +69,10 @@ class Pix2PixModel(BaseModel):
             # define loss functions
             self.criterionGAN = networks.GANLoss(opt.gan_mode).to(self.device)  # move to the device for custom loss
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
-            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
-            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=opt.lr, betas=(opt.beta1, 0.999))
+            lr_G = opt.lr_G if opt.lr_G is not None else opt.lr
+            lr_D = opt.lr_D if opt.lr_D is not None else opt.lr
+            self.optimizer_G = torch.optim.Adam(self.netG.parameters(), lr=lr_G, betas=(opt.beta1, 0.999))
+            self.optimizer_D = torch.optim.Adam(self.netD.parameters(), lr=lr_D, betas=(opt.beta1, 0.999))
             self.optimizers.append(self.optimizer_G)
             self.optimizers.append(self.optimizer_D)
 
@@ -109,7 +112,7 @@ class Pix2PixModel(BaseModel):
         # First, G(A) should fake the discriminator
         fake_AB = torch.cat((self.real_A, self.fake_B), 1)
         pred_fake = self.netD(fake_AB)
-        self.loss_G_GAN = self.criterionGAN(pred_fake, True)
+        self.loss_G_GAN = self.criterionGAN(pred_fake, True) * self.opt.lambda_GAN
 
         # Second, G(A) = B
         self.loss_G_L1 = reconstruction_loss(
@@ -119,8 +122,8 @@ class Pix2PixModel(BaseModel):
         ) * self.opt.lambda_L1
 
         # combine loss and calculate gradients
-        self.loss_G = self.loss_G_GAN + self.loss_G_L1
-        self.loss_G.backward()
+        self.loss_G_total = self.loss_G_GAN + self.loss_G_L1
+        self.loss_G_total.backward()
 
     def optimize_parameters(self):
         self.forward()  # compute fake images: G(A)

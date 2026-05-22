@@ -65,11 +65,12 @@ if __name__ == "__main__":
                 losses = model.get_current_losses()
                 t_comp = (time.time() - iter_start_time) / opt.batch_size
                 visualizer.print_current_losses(epoch, epoch_iter, losses, t_comp, t_data)
-                visualizer.plot_current_losses(total_iters, losses)
+                if visualizer.use_wandb:
+                    visualizer.plot_current_losses(total_iters, losses)
                 if getattr(visualizer, "wandb_run", None) is not None:
                     visualizer.wandb_run.log({"train/epoch": epoch}, step=total_iters)
 
-            if total_iters % opt.save_latest_freq == 0:  # cache our latest model every <save_latest_freq> iterations
+            if not opt.save_latest_only and total_iters % opt.save_latest_freq == 0:  # cache our latest model every <save_latest_freq> iterations
                 print(f"saving the latest model (epoch {epoch}, total_iters {total_iters})")
                 save_suffix = f"iter_{total_iters}" if opt.save_by_iter else "latest"
                 model.save_networks(save_suffix)
@@ -78,19 +79,24 @@ if __name__ == "__main__":
 
         model.update_learning_rate()  # update learning rates at the end of every epoch
         if getattr(visualizer, "wandb_run", None) is not None:
-            current_lr = model.optimizers[0].param_groups[0]["lr"]
-            visualizer.wandb_run.log(
-                {
-                    "train/learning_rate": current_lr,
-                    "train/epoch_complete": epoch,
-                },
-                step=total_iters,
-            )
+            generator_lr = model.optimizer_G.param_groups[0]["lr"]
+            discriminator_lr = model.optimizer_D.param_groups[0]["lr"]
+            lr_metrics = {
+                "train/lr_G": generator_lr,
+                "train/lr_D": discriminator_lr,
+                "train/epoch_complete": epoch,
+            }
+            visualizer.wandb_run.log(lr_metrics, step=total_iters)
 
-        if epoch % opt.save_epoch_freq == 0:  # cache our model every <save_epoch_freq> epochs
-            print(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
-            model.save_networks("latest")
-            model.save_networks(epoch)
+        if opt.save_latest_only:
+            if epoch == opt.n_epochs + opt.n_epochs_decay:
+                print(f"saving the final latest model at the end of epoch {epoch}, iters {total_iters}")
+                model.save_networks("latest")
+        else:
+            if epoch % opt.save_epoch_freq == 0:  # cache our model every <save_epoch_freq> epochs
+                print(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
+                model.save_networks("latest")
+                model.save_networks(epoch)
 
         print(f"End of epoch {epoch} / {opt.n_epochs + opt.n_epochs_decay} \t Time Taken: {time.time() - epoch_start_time:.0f} sec")
 

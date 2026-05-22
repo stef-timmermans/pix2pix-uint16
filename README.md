@@ -124,6 +124,17 @@ python train.py \
     --use_wandb
 ```
 
+Useful training flags:
+
+```bash
+--lr 0.0002 \
+--lr_G 0.0002 \
+--lr_D 0.0002 \
+--lambda_GAN 1.0 \
+--lambda_L1 100.0 \
+--save_latest_only
+```
+
 ## Testing
 
 ```
@@ -147,7 +158,8 @@ Useful evaluation flags:
 --tiled_inference \
 --tile_size 256 \
 --tile_stride 256 \
---compute_eval_loss
+--compute_eval_loss \
+--skip_save_images
 ```
 
 ## Foreground-Aware Reconstruction Loss
@@ -168,7 +180,7 @@ To enable the foreground-aware reconstruction loss:
 --recon_loss foreground_aware
 ```
 
-To tune the loss weighting behaviour, the following hyperparameters can be used (see [losses.py](./models/losses.py) for implementation details):
+To tune the loss weighting behavior, use the following hyperparameters (see [losses.py](./models/losses.py) for implementation details):
 
 ```
 --background_percentile 5
