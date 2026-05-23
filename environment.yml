@@ -10,6 +10,7 @@ dependencies:
   - pytorch-cuda=12.1
   - numpy=2.2.5
   - scikit-image=0.26.0
+  - optuna
   - pip
   - pip:
       - dominate>=2.8.0
