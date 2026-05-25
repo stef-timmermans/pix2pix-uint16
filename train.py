@@ -15,6 +15,7 @@ See options/base_options.py and options/train_options.py for more training optio
 """
 
 import time
+from pathlib import Path
 import torch.distributed as dist
 from options.train_options import TrainOptions
 from data import create_dataset
@@ -22,6 +23,25 @@ from models import create_model
 from util.visualizer import Visualizer
 from util.util import init_ddp, cleanup_ddp
 from util.wandb_helper import finish_run
+
+
+def prune_old_epoch_checkpoints(save_dir: Path, current_epoch: int, keep_last_n: int) -> None:
+    """Delete numbered epoch checkpoints older than the most recent N epochs."""
+    if keep_last_n <= 0:
+        return
+
+    min_epoch_to_keep = current_epoch - keep_last_n + 1
+    for checkpoint_path in save_dir.glob("*_net_*.pth"):
+        stem = checkpoint_path.stem
+        epoch_token, _, _ = stem.partition("_net_")
+        if epoch_token == "latest":
+            continue
+        try:
+            checkpoint_epoch = int(epoch_token)
+        except ValueError:
+            continue
+        if checkpoint_epoch < min_epoch_to_keep:
+            checkpoint_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
@@ -97,8 +117,9 @@ if __name__ == "__main__":
                 print(f"saving the model at the end of epoch {epoch}, iters {total_iters}")
                 model.save_networks("latest")
                 model.save_networks(epoch)
+                prune_old_epoch_checkpoints(model.save_dir, epoch, opt.save_last_n_epochs)
 
-        print(f"End of epoch {epoch} / {opt.n_epochs + opt.n_epochs_decay} \t Time Taken: {time.time() - epoch_start_time:.0f} sec")
+        print(f"End of epoch {epoch} / {opt.n_epochs + opt.n_epochs_decay} 	 Time Taken: {time.time() - epoch_start_time:.0f} sec")
 
     if not dist.is_initialized() or dist.get_rank() == 0:
         finish_run(getattr(visualizer, "wandb_run", None))
