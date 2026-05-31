@@ -15,16 +15,19 @@ See options/base_options.py and options/test_options.py for more test options.
 
 import json
 from pathlib import Path
+
 import numpy as np
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 from options.test_options import TestOptions
 from data import create_dataset
 from models import create_model
 from util.visualizer import save_images
-from util import html
+from util import html, util
 from util.image_logging import save_visuals_to_directory
 import torch
 import csv
 from models.losses import reconstruction_loss
+from util.types import dtype_max
 from util.wandb_helper import finish_run, init_wandb_run, log_visuals, update_config, update_summary
 
 
@@ -81,6 +84,21 @@ def tiled_test(model, data, opt):
 
     return visuals, fake_B
 
+
+def image_quality_metrics(pred, target, output_imtype):
+    pred_numpy = util.tensor2im(pred.detach(), imtype=output_imtype)
+    target_numpy = util.tensor2im(target.detach(), imtype=output_imtype)
+    data_range = float(dtype_max(np.dtype(output_imtype).name))
+    channel_axis = -1 if pred_numpy.ndim == 3 and pred_numpy.shape[-1] > 1 else None
+    ssim = structural_similarity(
+        target_numpy,
+        pred_numpy,
+        data_range=data_range,
+        channel_axis=channel_axis,
+    )
+    psnr = peak_signal_noise_ratio(target_numpy, pred_numpy, data_range=data_range)
+    return float(ssim), float(psnr)
+
 if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
     opt.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -127,6 +145,9 @@ if __name__ == "__main__":
 
     total_recon_loss = 0.0
     n_loss = 0
+    total_ssim = 0.0
+    total_psnr = 0.0
+    n_scored_images = 0
 
     for i, data in enumerate(dataset):
         if i >= opt.num_test:  # only apply our model to opt.num_test images.
@@ -166,6 +187,23 @@ if __name__ == "__main__":
                     step=i,
                 )
 
+        if "B" in data:
+            ssim, psnr = image_quality_metrics(fake_B, data["B"].to(fake_B.device), output_imtype)
+            total_ssim += ssim
+            total_psnr += psnr
+            n_scored_images += 1
+
+            if wandb_run is not None:
+                wandb_run.log(
+                    {
+                        f"{opt.phase}/ssim": ssim,
+                        f"{opt.phase}/psnr": psnr,
+                        f"{opt.phase}/running_avg_ssim": total_ssim / n_scored_images,
+                        f"{opt.phase}/running_avg_psnr": total_psnr / n_scored_images,
+                    },
+                    step=i,
+                )
+
         img_path = model.get_image_paths()  # get image paths
         if i % 5 == 0:  # save images to an HTML file
             if not opt.skip_save_images:
@@ -197,42 +235,36 @@ if __name__ == "__main__":
                 output_imtype=output_imtype,
             )
 
-    if opt.compute_eval_loss:
-        avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
+    avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
+    avg_ssim = total_ssim / n_scored_images if n_scored_images > 0 else float("nan")
+    avg_psnr = total_psnr / n_scored_images if n_scored_images > 0 else float("nan")
+    summary_metrics = {
+        "avg_recon_loss": avg_recon_loss,
+        "avg_ssim": avg_ssim,
+        "avg_psnr": avg_psnr,
+        "num_images": n_scored_images if n_scored_images > 0 else n_loss,
+    }
+
+    if opt.compute_eval_loss or n_scored_images > 0:
         print(f"{opt.phase} avg_recon_loss: {avg_recon_loss:.6f}")
+        print(f"{opt.phase} avg_ssim: {avg_ssim:.6f}")
+        print(f"{opt.phase} avg_psnr: {avg_psnr:.6f}")
 
         if wandb_run is not None:
-            wandb_run.log(
-                {
-                    f"{opt.phase}/avg_recon_loss": avg_recon_loss,
-                    f"{opt.phase}/num_images": n_loss,
-                }
-            )
+            wandb_run.log({f"{opt.phase}/{key}": value for key, value in summary_metrics.items()})
 
-        print(f"EVAL_METRICS: {json.dumps({'avg_recon_loss': avg_recon_loss, 'num_images': n_loss}, sort_keys=True)}")
+        print(f"EVAL_METRICS: {json.dumps(summary_metrics, sort_keys=True)}")
         if not opt.skip_save_images:
             metrics_path = web_dir / f"{opt.phase}_metrics.csv"
             with open(metrics_path, "w", newline="") as f:
                 writer = csv.DictWriter(
                     f,
-                    fieldnames=["epoch", "num_images", "avg_recon_loss"],
+                    fieldnames=["epoch", "num_images", "avg_recon_loss", "avg_ssim", "avg_psnr"],
                 )
                 writer.writeheader()
-                writer.writerow(
-                    {
-                        "epoch": opt.epoch,
-                        "num_images": n_loss,
-                        "avg_recon_loss": avg_recon_loss,
-                    }
-                )
+                writer.writerow({"epoch": opt.epoch, **summary_metrics})
             print(f"wrote metrics to {metrics_path}")
-        update_summary(
-            wandb_run,
-            {
-                f"{opt.phase}/avg_recon_loss": avg_recon_loss,
-                f"{opt.phase}/num_images": n_loss,
-            },
-        )
+        update_summary(wandb_run, {f"{opt.phase}/{key}": value for key, value in summary_metrics.items()})
 
     if webpage is not None and not opt.skip_save_images:
         webpage.save()  # save the HTML
