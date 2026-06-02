@@ -4,6 +4,42 @@ import torch.nn.functional as F
 from util.types import dtype_max
 
 
+def foreground_mask_from_target(
+    target: torch.Tensor,
+    background_percentile: float,
+    foreground_margin: float,
+) -> torch.Tensor:
+    if not (0.0 < background_percentile <= 100.0):
+        raise ValueError("background_percentile must be in (0, 100]")
+
+    if foreground_margin < 0:
+        raise ValueError("foreground_margin must be >= 0")
+
+    B, C, H, W = target.shape
+
+    # Flatten spatial dims; operate per patch
+    flat_target = target.view(B, C, -1)
+
+    # Number of darkest pixels used to estimate background
+    k = max(1, int(flat_target.shape[-1] * background_percentile / 100.0))
+
+    # Get bottom x% intensities (assumed to be background)
+    bottom_vals, _ = torch.topk(flat_target, k=k, dim=-1, largest=False)
+
+    # Estimate background as median of darkest pixels
+    # (robust to noise and outliers)
+    background = bottom_vals.median(dim=-1, keepdim=True).values
+
+    # Reshape back to image shape
+    background = background.view(B, C, 1, 1)
+
+    # Define foreground mask:
+    # pixels significantly above estimated background
+    fg_mask = target > (background + foreground_margin)
+
+    return fg_mask
+
+
 def _standard_l1(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """
     Standard mean L1 reconstruction loss.
@@ -64,36 +100,14 @@ def _foreground_aware_l1(
     if pred.shape != target.shape:
         raise ValueError("pred and target must have identical shapes")
 
-    if not (0.0 < background_percentile <= 100.0):
-        raise ValueError("background_percentile must be in (0, 100]")
-
-    if foreground_margin < 0:
-        raise ValueError("foreground_margin must be >= 0")
-
     if fg_weight <= 0 or bg_weight < 0:
         raise ValueError("fg_weight must be > 0 and bg_weight must be >= 0")
 
-    B, C, H, W = target.shape
-
-    # Flatten spatial dims; operate per patch
-    flat_target = target.view(B, C, -1)
-
-    # Number of darkest pixels used to estimate background
-    k = max(1, int(flat_target.shape[-1] * background_percentile / 100.0))
-
-    # Get bottom x% intensities (assumed to be background)
-    bottom_vals, _ = torch.topk(flat_target, k=k, dim=-1, largest=False)
-
-    # Estimate background as median of darkest pixels
-    # (robust to noise and outliers)
-    background = bottom_vals.median(dim=-1, keepdim=True).values
-
-    # Reshape back to image shape
-    background = background.view(B, C, 1, 1)
-
-    # Define foreground mask:
-    # pixels significantly above estimated background
-    fg_mask = target > (background + foreground_margin)
+    fg_mask = foreground_mask_from_target(
+        target=target,
+        background_percentile=background_percentile,
+        foreground_margin=foreground_margin,
+    )
 
     # Everything else is background
     bg_mask = ~fg_mask

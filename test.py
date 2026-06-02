@@ -26,7 +26,7 @@ from util import html, util
 from util.image_logging import save_visuals_to_directory
 import torch
 import csv
-from models.losses import reconstruction_loss
+from models.losses import foreground_mask_from_target, reconstruction_loss
 from util.types import dtype_max
 from util.wandb_helper import finish_run, init_wandb_run, log_visuals, update_config, update_summary
 
@@ -85,19 +85,57 @@ def tiled_test(model, data, opt):
     return visuals, fake_B
 
 
-def image_quality_metrics(pred, target, output_imtype):
+def eval_metric_key(metric_name):
+    return metric_name.strip().lower().replace("-", "_")
+
+
+def foreground_psnr(pred_numpy, target_numpy, target, opt, data_range):
+    foreground_margin = (opt.foreground_margin / dtype_max(opt.dtype)) * 2.0
+    mask = foreground_mask_from_target(
+        target=target,
+        background_percentile=opt.background_percentile,
+        foreground_margin=foreground_margin,
+    )
+    mask_numpy = mask[0, 0].detach().cpu().numpy().astype(bool)
+    if not mask_numpy.any():
+        return float("nan")
+
+    diff = pred_numpy.astype(np.float64) - target_numpy.astype(np.float64)
+    masked_mse = np.mean(diff[mask_numpy] ** 2)
+    if masked_mse == 0.0:
+        return float("inf")
+    return float(10.0 * np.log10((data_range ** 2) / masked_mse))
+
+
+def image_eval_metrics(pred, target, opt, output_imtype):
     pred_numpy = util.tensor2im(pred.detach(), imtype=output_imtype)
     target_numpy = util.tensor2im(target.detach(), imtype=output_imtype)
     data_range = float(dtype_max(np.dtype(output_imtype).name))
     channel_axis = -1 if pred_numpy.ndim == 3 and pred_numpy.shape[-1] > 1 else None
-    ssim = structural_similarity(
-        target_numpy,
-        pred_numpy,
-        data_range=data_range,
-        channel_axis=channel_axis,
-    )
-    psnr = peak_signal_noise_ratio(target_numpy, pred_numpy, data_range=data_range)
-    return float(ssim), float(psnr)
+    requested = {eval_metric_key(metric_name) for metric_name in opt.eval_metrics}
+    metrics = {}
+
+    if "ssim" in requested:
+        metrics["ssim"] = float(
+            structural_similarity(
+                target_numpy,
+                pred_numpy,
+                data_range=data_range,
+                channel_axis=channel_axis,
+            )
+        )
+
+    if "psnr" in requested:
+        metrics["psnr"] = float(peak_signal_noise_ratio(target_numpy, pred_numpy, data_range=data_range))
+
+    if "foreground_psnr" in requested:
+        metrics["foreground_psnr"] = foreground_psnr(pred_numpy, target_numpy, target, opt, data_range)
+
+    unknown = requested - {"ssim", "psnr", "foreground_psnr"}
+    if unknown:
+        raise ValueError(f"Unsupported eval_metrics entries: {sorted(unknown)}")
+
+    return metrics
 
 if __name__ == "__main__":
     opt = TestOptions().parse()  # get test options
@@ -145,8 +183,8 @@ if __name__ == "__main__":
 
     total_recon_loss = 0.0
     n_loss = 0
-    total_ssim = 0.0
-    total_psnr = 0.0
+    metric_totals = {}
+    metric_counts = {}
     n_scored_images = 0
 
     for i, data in enumerate(dataset):
@@ -188,18 +226,23 @@ if __name__ == "__main__":
                 )
 
         if "B" in data:
-            ssim, psnr = image_quality_metrics(fake_B, data["B"].to(fake_B.device), output_imtype)
-            total_ssim += ssim
-            total_psnr += psnr
-            n_scored_images += 1
+            image_metrics = image_eval_metrics(fake_B, data["B"].to(fake_B.device), opt, output_imtype)
+            for key, value in image_metrics.items():
+                if np.isfinite(value):
+                    metric_totals[key] = metric_totals.get(key, 0.0) + value
+                    metric_counts[key] = metric_counts.get(key, 0) + 1
+            if image_metrics:
+                n_scored_images += 1
 
-            if wandb_run is not None:
+            if wandb_run is not None and image_metrics:
                 wandb_run.log(
                     {
-                        f"{opt.phase}/ssim": ssim,
-                        f"{opt.phase}/psnr": psnr,
-                        f"{opt.phase}/running_avg_ssim": total_ssim / n_scored_images,
-                        f"{opt.phase}/running_avg_psnr": total_psnr / n_scored_images,
+                        **{f"{opt.phase}/{key}": value for key, value in image_metrics.items()},
+                        **{
+                            f"{opt.phase}/running_avg_{key}": metric_totals[key] / metric_counts[key]
+                            for key in image_metrics
+                            if metric_counts.get(key, 0) > 0
+                        },
                     },
                     step=i,
                 )
@@ -236,19 +279,17 @@ if __name__ == "__main__":
             )
 
     avg_recon_loss = total_recon_loss / n_loss if n_loss > 0 else float("nan")
-    avg_ssim = total_ssim / n_scored_images if n_scored_images > 0 else float("nan")
-    avg_psnr = total_psnr / n_scored_images if n_scored_images > 0 else float("nan")
-    summary_metrics = {
-        "avg_recon_loss": avg_recon_loss,
-        "avg_ssim": avg_ssim,
-        "avg_psnr": avg_psnr,
-        "num_images": n_scored_images if n_scored_images > 0 else n_loss,
-    }
+    summary_metrics = {"avg_recon_loss": avg_recon_loss}
+    for key in sorted({eval_metric_key(metric_name) for metric_name in opt.eval_metrics}):
+        count = metric_counts.get(key, 0)
+        summary_metrics[f"avg_{key}"] = metric_totals[key] / count if count > 0 else float("nan")
+    summary_metrics["num_images"] = n_scored_images if n_scored_images > 0 else n_loss
 
     if opt.compute_eval_loss or n_scored_images > 0:
         print(f"{opt.phase} avg_recon_loss: {avg_recon_loss:.6f}")
-        print(f"{opt.phase} avg_ssim: {avg_ssim:.6f}")
-        print(f"{opt.phase} avg_psnr: {avg_psnr:.6f}")
+        for key, value in summary_metrics.items():
+            if key.startswith("avg_") and key != "avg_recon_loss":
+                print(f"{opt.phase} {key}: {value:.6f}")
 
         if wandb_run is not None:
             wandb_run.log({f"{opt.phase}/{key}": value for key, value in summary_metrics.items()})
@@ -259,7 +300,7 @@ if __name__ == "__main__":
             with open(metrics_path, "w", newline="") as f:
                 writer = csv.DictWriter(
                     f,
-                    fieldnames=["epoch", "num_images", "avg_recon_loss", "avg_ssim", "avg_psnr"],
+                    fieldnames=["epoch", *summary_metrics.keys()],
                 )
                 writer.writeheader()
                 writer.writerow({"epoch": opt.epoch, **summary_metrics})

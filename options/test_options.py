@@ -16,6 +16,7 @@ class TestOptions(BaseOptions):
         parser.add_argument('--eval', action='store_true', help='use eval mode during test time.')
         parser.add_argument('--num_test', type=int, default=50, help='how many test images to run')
         parser.add_argument('--skip_save_images', action='store_true', help='skip writing eval images to disk; useful for lightweight tuning')
+        parser.add_argument('--eval_metrics', nargs='+', default=['PSNR', 'SSIM'], choices=['PSNR', 'SSIM', 'Foreground-PSNR'], help='image quality metrics to compute during paired evaluation')
 
         # Compute losses during evaluation
         parser.add_argument("--compute_eval_loss", action="store_true", help="compute and save reconstruction loss during evaluation")
