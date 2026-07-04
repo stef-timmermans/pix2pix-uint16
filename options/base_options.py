@@ -20,11 +20,11 @@ class BaseOptions:
     def initialize(self, parser):
         """Define the common options that are used in both training and test."""
         # basic parameters
-        parser.add_argument("--dataroot", required=True, help="path to images (should have subfolders trainA, trainB, valA, valB, etc)")
+        parser.add_argument("--dataroot", required=True, help="path to the dataset root containing AB/<split>, or the AB directory itself")
         parser.add_argument("--name", type=str, default="experiment_name", help="name of the experiment. It decides where to store samples and models")
         parser.add_argument("--checkpoints_dir", type=str, default="./checkpoints", help="models are saved here")
         # model parameters
-        parser.add_argument("--model", type=str, default="pix2pix", help="chooses which model to use. [ pix2pix ]")
+        parser.add_argument("--model", type=str, default="pix2pix", choices=["pix2pix"], help="model to use")
         parser.add_argument("--ngf", type=int, default=64, help="# of gen filters in the last conv layer")
         parser.add_argument("--ndf", type=int, default=64, help="# of discrim filters in the first conv layer")
         parser.add_argument("--netD", type=str, default="basic", help="specify discriminator architecture [basic | n_layers | pixel]. The basic model is a 70x70 PatchGAN. n_layers allows you to specify the layers in the discriminator")
@@ -35,8 +35,8 @@ class BaseOptions:
         parser.add_argument("--init_gain", type=float, default=0.02, help="scaling factor for normal, xavier and orthogonal.")
         parser.add_argument("--no_dropout", action="store_true", help="no dropout for the generator")
         # dataset parameters
-        parser.add_argument("--dataset_mode", type=str, default="aligned", help="chooses how datasets are loaded. [aligned]")
-        parser.add_argument("--direction", type=str, default="AtoB", help="AtoB or BtoA")
+        parser.add_argument("--dataset_mode", type=str, default="aligned", choices=["aligned"], help="dataset loader to use")
+        parser.add_argument("--direction", type=str, default="AtoB", choices=["AtoB", "BtoA"], help="mapping direction")
         parser.add_argument("--serial_batches", action="store_true", help="if true, takes images in order to make batches, otherwise takes them randomly")
         parser.add_argument("--num_threads", default=4, type=int, help="# threads for loading data")
         parser.add_argument("--batch_size", type=int, default=1, help="input batch size")
@@ -51,12 +51,19 @@ class BaseOptions:
         parser.add_argument("--load_iter", type=int, default="0", help="which iteration to load? if load_iter > 0, the code will load models by iter_[load_iter]; otherwise, the code will load models by [epoch]")
         parser.add_argument("--verbose", action="store_true", help="if specified, print more debugging information")
         parser.add_argument("--suffix", default="", type=str, help="customized suffix: opt.name = opt.name + suffix: e.g., {model}_{netG}_size{load_size}")
+        parser.add_argument('--no_html', action='store_true', help='do not save intermediate training results to [opt.checkpoints_dir]/[opt.name]/web/')
         # wandb parameters
         parser.add_argument("--use_wandb", action="store_true", help="if specified, then init wandb logging")
         parser.add_argument("--wandb_project_name", type=str, default="pix2pix-uint16", help="specify wandb project name")
+        parser.add_argument("--wandb_entity", type=str, default=None, help="optional wandb username or team")
+        parser.add_argument("--wandb_mode", type=str, default="online", choices=["online", "offline", "disabled"], help="wandb sync mode")
+        parser.add_argument("--wandb_log_images", action="store_true", help="log generated images to wandb in addition to scalar metrics")
 
         # image datatype configuration
         parser.add_argument("--dtype", type=str, required=True, choices=["uint8", "uint16", "uint32"], help="integer dtype of raw images before normalization")
+        parser.add_argument("--normalize_source", action="store_true", help="apply percentile normalization to source images before tensor mapping")
+        parser.add_argument("--source-norm-low", type=float, default=1.0, help="lower percentile for source normalization")
+        parser.add_argument("--source-norm-high", type=float, default=99.0, help="upper percentile for source normalization")
 
         # grayscale-specific flags
         parser.add_argument("--input_nc", type=int, required=True, help="# of input image channels: 3 for RGB and 1 for grayscale")
@@ -66,11 +73,10 @@ class BaseOptions:
 
         # reconstruction loss parameters
         parser.add_argument("--recon_loss", type=str, default="l1", choices=["l1", "foreground_aware"], help="type of reconstruction loss")
-        parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of pixels used to estimate local background")
-        parser.add_argument("--min_importance", type=float, default=0.2, help="minimum importance weight")
-        parser.add_argument("--max_importance", type=float, default=3.0, help="maximum importance weight")
-        parser.add_argument("--importance_scale", type=float, default=1000.0, help="raw intensity distance above background at which a pixel reaches maximum importance")
-        parser.add_argument("--importance_gamma", type=float, default=2.0, help="exponent controlling importance curve shape (>1 suppresses importance of pixels close to background)")
+        parser.add_argument("--background_percentile", type=float, default=5.0, help="bottom percentile of target pixels used to estimate local background")
+        parser.add_argument("--foreground_margin", type=float, default=500.0, help="raw intensity margin above estimated background required to count as foreground")
+        parser.add_argument("--fg_weight", type=float, default=20.0, help="weight applied to foreground-region reconstruction loss")
+        parser.add_argument("--bg_weight", type=float, default=0.5, help="weight applied to background-region reconstruction loss")
         self.initialized = True
         return parser
 

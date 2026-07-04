@@ -3,7 +3,7 @@
 A `pix2pix` fork enabling training and inference on high-bit-depth scientific images (8-, 16-, and 32-bit).
 ## About
 
-This repository is a fork of [junyanz/pytorch-CycleGAN-and-pix2pix](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix) adapted for high-bit-depth image data. The original license can be found in [LICENSE](./LICENSE). This repository does not include support for CycleGAN or other models.
+This repository is a fork of [junyanz/pytorch-CycleGAN-and-pix2pix](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix) adapted for high-bit-depth image data. The original license can be found in [LICENSE](./LICENSE). This repository is intentionally scoped to paired-image `pix2pix` workflows.
 
 Many scientific imaging modalities store images as 16-bit integer data. The popular PyTorch `pix2pix` implementation assumes 8-bit RGB images, which can result in loss of dynamic range when loading images for training and evaluation.
 
@@ -16,7 +16,16 @@ This fork modifies the data pipeline so that high-bit-depth images can be used f
 - Single-channel and multi-channel image translation  
 - TIFF output support for scientific workflows  
 - Optional foreground-aware reconstruction loss  
-- Distributed Data Parallel (DDP) training  
+- Distributed Data Parallel (DDP) training
+
+## Scope
+
+- Supported model: `pix2pix`
+- Supported dataset mode: `aligned`
+- Supported image dtypes: `uint8`, `uint16`, `uint32`
+- Supported input/output channel counts: `1` or `3`
+
+CycleGAN-specific training paths are not part of this fork.
 
 ## Prerequisites
 
@@ -53,9 +62,33 @@ conda activate pix2pix-uint16
 --output_nc {1,3}                   # output channel count
 ```
 
+Optional source-domain normalization can be enabled with:
+
+```bash
+--normalize_source \
+--source-norm-low 1 \
+--source-norm-high 99
+```
+
+Optional Weights & Biases logging can be enabled with `--use_wandb`. Project, entity, mode, and image-logging behavior are available as flags if you want to override the defaults:
+
+```bash
+--wandb_project_name pix2pix-uint16 \
+--wandb_entity <username-or-team> \
+--wandb_mode online
+```
+
+Image logging to W&B is optional and disabled unless you pass:
+
+```bash
+--wandb_log_images
+```
+
 ## Dataset Structure
 
-`--dataroot` must point to a dataset directory structured as follows:
+`--dataroot` should usually point to the dataset root containing an `AB/` child. Passing the `AB/` directory itself is also supported for compatibility.
+
+Preferred layout:
 
 ```
 dataroot/
@@ -73,7 +106,9 @@ dataroot/
     └── test/
 ```
 
-`AB` is the only folder actually used during training/evaluation, so if it has been properly prepared, the other directories can be cleared.
+Each split contains side-by-side paired images where the left half is domain `A` and the right half is domain `B`.
+
+The `A/` and `B/` source folders are only needed while preparing paired data. Training and evaluation read from the paired split directories.
 
 ## Training
 
@@ -89,6 +124,17 @@ python train.py \
     --use_wandb
 ```
 
+Useful training flags:
+
+```bash
+--lr 0.0002 \
+--lr_G 0.0002 \
+--lr_D 0.0002 \
+--lambda_GAN 1.0 \
+--lambda_L1 100.0 \
+--save_latest_only
+```
+
 ## Testing
 
 ```
@@ -100,6 +146,20 @@ python test.py \
     --dtype uint16 \
     --input_nc 1 \
     --output_nc 1
+```
+
+Useful evaluation flags:
+
+```bash
+--results_dir ./results \
+--phase val \
+--epoch latest \
+--no_html \
+--tiled_inference \
+--tile_size 256 \
+--tile_stride 256 \
+--compute_eval_loss \
+--skip_save_images
 ```
 
 ## Foreground-Aware Reconstruction Loss
@@ -120,14 +180,13 @@ To enable the foreground-aware reconstruction loss:
 --recon_loss foreground_aware
 ```
 
-To tune the loss weighting behaviour, the following hyperparameters can be used (see [losses.py](./models/losses.py) for implementation details):
+To tune the loss weighting behavior, use the following hyperparameters (see [losses.py](./models/losses.py) for implementation details):
 
 ```
 --background_percentile 5
---min_importance 0.2
---max_importance 3
---importance_scale 1000
---importance_gamma 2
+--foreground_margin 500
+--fg_weight 20
+--bg_weight 0.5
 ```
 
 ## Multi‑GPU
@@ -142,6 +201,19 @@ Example (4 GPUs):
 torchrun --nproc_per_node=4 train.py \
     --your_args
 ```
+
+For multi-GPU runs, prefer `--norm syncbatch` or `--norm instance`.
+
+## W&B Authentication
+
+This repo reads standard W&B environment variables if present, including:
+
+- `WANDB_API_KEY`
+- `WANDB_ENTITY`
+- `WANDB_MODE`
+- `WANDB_BASE_URL`
+
+You can also authenticate separately with `wandb login`. This repository does not require any repo-specific secret file.
 
 ## Citation
 

@@ -1,12 +1,10 @@
 import numpy as np
-import sys
-import ntpath
 import time
 from . import util, html
 from pathlib import Path
-import wandb
 import os
 import torch.distributed as dist
+from .wandb_helper import init_wandb_run, log_metrics, log_visuals
 
 
 def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image_ext=".png", output_imtype=np.uint8):
@@ -30,12 +28,14 @@ def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256, image
     ims, txts, links = [], [], []
     for label, im_data in visuals.items():
         im = util.tensor2im(im_data, imtype=output_imtype)
-        image_name = f"{name}_{label}{image_ext}"
-        save_path = image_dir / image_name
+        label_dir = image_dir / label
+        label_dir.mkdir(parents=True, exist_ok=True)
+        rel_path = f"{label}/{name}{image_ext}"
+        save_path = image_dir / rel_path
         util.save_image(im, save_path, aspect_ratio=aspect_ratio)
-        ims.append(image_name)
+        ims.append(rel_path)
         txts.append(label)
-        links.append(image_name)
+        links.append(rel_path)
     webpage.add_images(ims, txts, links, width=width)
 
 
@@ -66,20 +66,13 @@ class Visualizer:
         self.output_imtype = np.dtype(opt.dtype).type
 
         # Initialize wandb if enabled
-        if self.use_wandb:
-            # Only initialize wandb on main process (rank 0)
-            if not dist.is_initialized() or dist.get_rank() == 0:
-                self.wandb_project_name = getattr(opt, "wandb_project_name", "pix2pix-uint16")
-                self.wandb_run = wandb.init(project=self.wandb_project_name, name=opt.name, config=opt) if not wandb.run else wandb.run
-                self.wandb_run._label(repo="pix2pix-uint16")
-            else:
-                self.wandb_run = None
+        self.wandb_run = init_wandb_run(opt, job_type="train")
 
-        if self.use_html:  # create an HTML object at <checkpoints_dir>/web/; images will be saved under <checkpoints_dir>/web/images/
-            self.web_dir = Path(opt.checkpoints_dir) / opt.name / "web"
-            self.img_dir = self.web_dir / "images"
-            print(f"create web directory {self.web_dir}...")
-            util.mkdirs([self.web_dir, self.img_dir])
+        self.web_dir = Path(opt.checkpoints_dir) / opt.name / "web"
+        self.img_dir = self.web_dir / "images"
+        print(f"create image output directory {self.web_dir}...")
+        util.mkdirs([self.web_dir, self.img_dir])
+
         # create a logging file to store training losses
         self.log_name = Path(opt.checkpoints_dir) / opt.name / "loss_log.txt"
         with open(self.log_name, "a") as log_file:
@@ -105,35 +98,38 @@ class Visualizer:
         if "LOCAL_RANK" in os.environ and dist.is_initialized() and dist.get_rank() != 0:
             return
 
-        if self.use_wandb:
-            ims_dict = {}
-            for label, image in visuals.items():
-                image_numpy = util.tensor2im(image)
-                wandb_image = wandb.Image(image_numpy, caption=f"{label} - Step {total_iters}")
-                ims_dict[f"results/{label}"] = wandb_image
-            self.wandb_run.log(ims_dict, step=total_iters)
+        if self.use_wandb and getattr(self.opt, "wandb_log_images", False):
+            log_visuals(
+                self.wandb_run,
+                visuals,
+                step=total_iters,
+                prefix="train",
+            )
 
-        if self.use_html and (save_result or not self.saved):  # save images to an HTML file if they haven't been saved.
+        if save_result or not self.saved:  # save images to the disk; update HTML only if enabled
             self.saved = True
             # save images to the disk
             for label, image in visuals.items():
                 image_numpy = util.tensor2im(image, imtype=self.output_imtype)
-                img_path = self.img_dir / f"epoch{epoch:03d}_{label}{self.image_ext}"
+                label_dir = self.img_dir / label
+                label_dir.mkdir(parents=True, exist_ok=True)
+                img_path = label_dir / f"epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
                 util.save_image(image_numpy, img_path)
 
             # update website
-            webpage = html.HTML(self.web_dir, f"Experiment name = {self.name}", refresh=1)
-            for n in range(epoch, 0, -1):
-                webpage.add_header(f"epoch [{n}]")
+            if self.use_html:
+                webpage = html.HTML(self.web_dir, f"Experiment name = {self.name}", refresh=1)
+                webpage.add_header(f"epoch [{epoch}], total_iters [{total_iters}]")
                 ims, txts, links = [], [], []
 
                 for label, image in visuals.items():
-                    img_path = f"epoch{n:03d}_{label}{self.image_ext}"
-                    ims.append(img_path)
+                    rel_path = f"{label}/epoch{epoch:03d}_iter{total_iters:07d}{self.image_ext}"
+                    ims.append(rel_path)
                     txts.append(label)
-                    links.append(img_path)
+                    links.append(rel_path)
+
                 webpage.add_images(ims, txts, links, width=self.win_size)
-            webpage.save()
+                webpage.save()
 
     def plot_current_losses(self, total_iters, losses):
         """Log current losses to wandb
@@ -147,7 +143,7 @@ class Visualizer:
             return
 
         if self.use_wandb:
-            self.wandb_run.log(losses, step=total_iters)
+            log_metrics(self.wandb_run, losses, step=total_iters)
 
     def print_current_losses(self, epoch, iters, losses, t_comp, t_data):
         """print current losses on console; also save the losses to the disk
@@ -162,7 +158,7 @@ class Visualizer:
         local_rank = int(os.environ.get("LOCAL_RANK", 0))
         message = f"[Rank {local_rank}] (epoch: {epoch}, iters: {iters}, time: {t_comp:.3f}, data: {t_data:.3f}) "
         for k, v in losses.items():
-            message += f", {k}: {v:.3f}"
+            message += f", {k}: {v:.8f}"
         message += "\n"
         print(message)  # print the message on ALL ranks with rank info
 

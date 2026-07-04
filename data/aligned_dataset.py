@@ -1,5 +1,5 @@
 import os
-from data.base_dataset import BaseDataset, get_params, get_transform
+from data.base_dataset import BaseDataset, get_params, get_transform, normalize_percentile
 from data.image_folder import make_dataset
 from PIL import Image
 import tifffile
@@ -10,8 +10,9 @@ import torch
 class AlignedDataset(BaseDataset):
     """A dataset class for paired image dataset.
 
-    It assumes that the directory '/path/to/data/train' contains image pairs in the form of {A,B}.
-    During test time, you need to prepare a directory '/path/to/data/test'.
+    It expects paired side-by-side images under either:
+        - <dataroot>/AB/<phase>
+        - <dataroot>/<phase>, when <dataroot> is already the AB directory
     """
 
     def __init__(self, opt):
@@ -21,11 +22,32 @@ class AlignedDataset(BaseDataset):
             opt (Option class) -- stores all the experiment flags; needs to be a subclass of BaseOptions
         """
         BaseDataset.__init__(self, opt)
-        self.dir_AB = os.path.join(opt.dataroot, opt.phase)  # get the image directory
+        self.dir_AB = self._resolve_split_dir(opt.dataroot, opt.phase)
         self.AB_paths = sorted(make_dataset(self.dir_AB, opt.max_dataset_size))  # get image paths
         assert self.opt.load_size >= self.opt.crop_size  # crop_size should be smaller than the size of loaded image
         self.input_nc = self.opt.output_nc if self.opt.direction == "BtoA" else self.opt.input_nc
         self.output_nc = self.opt.input_nc if self.opt.direction == "BtoA" else self.opt.output_nc
+
+    @staticmethod
+    def _resolve_split_dir(dataroot, phase):
+        dataroot_name = os.path.basename(os.path.normpath(dataroot))
+        if dataroot_name == "AB":
+            split_dir = os.path.join(dataroot, phase)
+            if os.path.isdir(split_dir):
+                return split_dir
+            raise FileNotFoundError(
+                f"Expected split directory '{split_dir}' for dataroot '{dataroot}'."
+            )
+
+        ab_root = os.path.join(dataroot, "AB")
+        split_dir = os.path.join(ab_root, phase)
+        if os.path.isdir(split_dir):
+            return split_dir
+
+        raise FileNotFoundError(
+            f"Expected paired split directory '{split_dir}'. "
+            f"Pass the dataset root containing an 'AB/' child, or pass the 'AB' directory itself."
+        )
 
     def __getitem__(self, index):
         """Return a data point and its metadata information.
@@ -56,7 +78,22 @@ class AlignedDataset(BaseDataset):
         A = AB[:, :w2]
         B = AB[:, w2:]
 
-        # apply the same transform to both A and B
+        if self.opt.normalize_source:
+            # Only normalize source domain
+            # TODO: Support normalizing target domain (more complex due to denormalization)
+            if self.opt.direction == "AtoB":
+                A = normalize_percentile(
+                    A,
+                    low=self.opt.source_norm_low,
+                    high=self.opt.source_norm_high,
+                )
+            else:
+                B = normalize_percentile(
+                    B,
+                    low=self.opt.source_norm_low,
+                    high=self.opt.source_norm_high,
+                )
+
         transform_params = get_params(self.opt, (w2, h))
         A_transform = get_transform(self.opt, transform_params, grayscale=(self.input_nc == 1))
         B_transform = get_transform(self.opt, transform_params, grayscale=(self.output_nc == 1))

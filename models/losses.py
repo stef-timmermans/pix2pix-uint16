@@ -4,6 +4,42 @@ import torch.nn.functional as F
 from util.types import dtype_max
 
 
+def foreground_mask_from_target(
+    target: torch.Tensor,
+    background_percentile: float,
+    foreground_margin: float,
+) -> torch.Tensor:
+    if not (0.0 < background_percentile <= 100.0):
+        raise ValueError("background_percentile must be in (0, 100]")
+
+    if foreground_margin < 0:
+        raise ValueError("foreground_margin must be >= 0")
+
+    B, C, H, W = target.shape
+
+    # Flatten spatial dims; operate per patch
+    flat_target = target.view(B, C, -1)
+
+    # Number of darkest pixels used to estimate background
+    k = max(1, int(flat_target.shape[-1] * background_percentile / 100.0))
+
+    # Get bottom x% intensities (assumed to be background)
+    bottom_vals, _ = torch.topk(flat_target, k=k, dim=-1, largest=False)
+
+    # Estimate background as median of darkest pixels
+    # (robust to noise and outliers)
+    background = bottom_vals.median(dim=-1, keepdim=True).values
+
+    # Reshape back to image shape
+    background = background.view(B, C, 1, 1)
+
+    # Define foreground mask:
+    # pixels significantly above estimated background
+    fg_mask = target > (background + foreground_margin)
+
+    return fg_mask
+
+
 def _standard_l1(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     """
     Standard mean L1 reconstruction loss.
@@ -22,114 +58,76 @@ def _standard_l1(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     return F.l1_loss(pred, target, reduction="mean")
 
 
-def _foreground_importance_l1(
+def _foreground_aware_l1(
     pred: torch.Tensor,
     target: torch.Tensor,
     background_percentile: float,
-    min_importance: float,
-    max_importance: float,
-    importance_scale: float,
-    gamma: float = 1.0,
+    foreground_margin: float,
+    fg_weight: float,
+    bg_weight: float,
 ) -> torch.Tensor:
     """
-    Foreground-aware weighted L1 reconstruction loss.
+    Foreground-aware reconstruction loss using explicit region separation.
 
-    High-level behavior:
-    - Inspect current target patch
-    - Estimate background from the bottom x% of target intensities
-    - Let pixels with intensity <= background have minimum importance weight
-    - Let pixels increasingly above background have importance approaching maximum
-    - Smooth and bound the weighting function so that background still has impact
+    Key idea:
+    ----------
+    Instead of smoothly weighting all pixels (which gets dominated by background),
+    we explicitly split pixels into:
+        - foreground (important signal)
+        - background (less important context)
 
-    Benefits of approach:
-    - No fixed absolute intensity tied to specific data
-    - Importance defined relative to distance from patch-estimated background
-    - Empty/background-only patches remain viable
-    - Foreground importance is greatly increased but background is still considered
+    Then compute losses separately and weight them differently.
 
-    Assumptions:
-    - pred and target have shape [B, C, H, W]
+    Why this works:
+    ---------------
+    - Sparse targets (like fluorescence) are mostly background.
+    - Standard L1 encourages predicting "nothing everywhere".
+    - This loss forces the model to care about rare signal.
 
-    Args:
-        pred (torch.Tensor):
-            Predicted image tensor of shape [B, C, H, W].
+    Pipeline:
+    ---------
+    1. Estimate background level per patch using the lowest-intensity pixels.
+    2. Define foreground as pixels sufficiently above background.
+    3. Compute L1 separately for foreground and background.
+    4. Combine with strong foreground weighting.
 
-        target (torch.Tensor):
-            Ground-truth image tensor of shape [B, C, H, W].
-
-        background_percentile (float):
-            Percentage of darkest pixels in each patch used to estimate
-            the local background reference.
-
-        min_importance (float):
-            Minimum weight assigned to background-like pixels.
-
-        max_importance (float):
-            Maximum weight assigned to strongly foreground-like pixels.
-
-        importance_scale (float):
-            Intensity distance above background in normalized tensor space
-            at which importance approaches its upper range.
-
-        gamma (float):
-            Optional shape parameter controlling how quickly importance
-            rises with distance above background.
-
-    Returns:
-        torch.Tensor:
-            Scalar weighted L1 loss.
+    This avoids:
+    -----------
+    - loss dilution from large background regions
+    - trivial solutions (predicting near-zero everywhere)
     """
 
     if pred.shape != target.shape:
         raise ValueError("pred and target must have identical shapes")
 
-    if not (0.0 < background_percentile <= 100.0):
-        raise ValueError("background_percentile must be in (0, 100]")
+    if fg_weight <= 0 or bg_weight < 0:
+        raise ValueError("fg_weight must be > 0 and bg_weight must be >= 0")
 
-    if min_importance <= 0:
-        raise ValueError("min_importance must be > 0")
+    fg_mask = foreground_mask_from_target(
+        target=target,
+        background_percentile=background_percentile,
+        foreground_margin=foreground_margin,
+    )
 
-    if max_importance < min_importance:
-        raise ValueError("max_importance must be >= min_importance")
+    # Everything else is background
+    bg_mask = ~fg_mask
 
-    if importance_scale <= 0:
-        raise ValueError("importance_scale must be > 0")
+    # Absolute error per pixel
+    abs_err = torch.abs(pred - target)
 
-    if gamma <= 0:
-        raise ValueError("gamma must be > 0")
+    # Count pixels in each region (avoid division by zero)
+    fg_count = fg_mask.sum().clamp_min(1)
+    bg_count = bg_mask.sum().clamp_min(1)
 
-    B, C, H, W = target.shape
+    # Mean L1 over foreground pixels only
+    fg_l1 = abs_err[fg_mask].sum() / fg_count
 
-    # Flatten spatial dims; operate per patch
-    flat_target = target.view(B, C, -1)
+    # Mean L1 over background pixels only
+    bg_l1 = abs_err[bg_mask].sum() / bg_count
 
-    # Number of darkest pixels
-    k = max(1, int(flat_target.shape[-1] * background_percentile / 100.0))
-
-    # Get bottom x% intensities
-    bottom_vals, _ = torch.topk(flat_target, k=k, dim=-1, largest=False)
-
-    # Background estimate (median of bottom x%)
-    background = bottom_vals.median(dim=-1, keepdim=True).values
-
-    # Distance above background
-    above_bg = (flat_target - background).clamp(min=0.0)
-
-    # Smooth bounded importance curve in normalized tensor space
-    scaled = (above_bg / importance_scale).clamp(min=0.0, max=1.0)
-    scaled = scaled.pow(gamma)
-
-    # Set weights
-    weights = min_importance + (max_importance - min_importance) * scaled
-
-    # Compute weighted L1
-    flat_pred = pred.view(B, C, -1)
-    l1_map = torch.abs(flat_pred - flat_target)
-
-    # No weight normalization; preserves lower loss for background patches.
-    # Loss = average importance-adjusted per-pixel reconstruction error.
-    weighted = weights * l1_map
-    return weighted.mean()
+    # Combine losses with explicit weighting
+    # Foreground should dominate learning signal
+    return (fg_weight * fg_l1) + (bg_weight * bg_l1)
 
 
 def reconstruction_loss(
@@ -161,16 +159,16 @@ def reconstruction_loss(
         return _standard_l1(pred, target)
 
     if opt.recon_loss == "foreground_aware":
-        importance_scale = (opt.importance_scale / max_val) * 2.0
+        # Convert margin from raw dtype space (e.g. uint16) to normalized [-1, 1]
+        foreground_margin = (opt.foreground_margin / max_val) * 2.0
 
-        return _foreground_importance_l1(
+        return _foreground_aware_l1(
             pred=pred,
             target=target,
             background_percentile=opt.background_percentile,
-            min_importance=opt.min_importance,
-            max_importance=opt.max_importance,
-            importance_scale=importance_scale,
-            gamma=opt.importance_gamma,
+            foreground_margin=foreground_margin,
+            fg_weight=opt.fg_weight,
+            bg_weight=opt.bg_weight,
         )
 
     raise ValueError(f"Unknown loss_type: {opt.recon_loss}")
