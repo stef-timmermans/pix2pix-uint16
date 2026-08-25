@@ -1,6 +1,9 @@
 # pix2pix-uint16 (PyTorch)
 
 A `pix2pix` fork enabling training and inference on high-bit-depth scientific images (8-, 16-, and 32-bit).
+
+![pix2pix architecture](./figs/pix2pix.png)
+
 ## About
 
 This repository is a fork of [junyanz/pytorch-CycleGAN-and-pix2pix](https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix) adapted for high-bit-depth image data. The original license can be found in [LICENSE](./LICENSE). This repository is intentionally scoped to paired-image `pix2pix` workflows.
